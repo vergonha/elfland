@@ -1,40 +1,32 @@
-/* =====================================================
-  * NodeCast TV - Dark Theme Design System
-   ===================================================== */
 
 /* CSS Variables */
 :root {
-  /* iOS Safari toolbar compensation (set dynamically by JS) */
   --ios-ui-bottom: 0px;
 
+  --color-bg-primary: #18181b;
+  --color-bg-secondary: #27272a;
+  --color-bg-tertiary: #27272a;
+  --color-bg-hover: #3f3f46;
+  --color-bg-active: #52525b;
 
-  /* Colors */
-  --color-bg-primary: #0a0a0f;
-  --color-bg-secondary: #12121a;
-  --color-bg-tertiary: #1a1a25;
-  --color-bg-hover: #22222f;
-  --color-bg-active: #2a2a3a;
-
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
-  --color-accent-dim: rgba(99, 102, 241, 0.2);
-
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-
-  --color-text-primary: #f1f1f5;
+  --color-text-primary: #ffffff;
   --color-text-secondary: #a1a1aa;
   --color-text-muted: #71717a;
 
-  --color-border: #27272a;
-  --color-border-light: #3f3f46;
+  --color-border: #3f3f46;
+  --color-border-light: #52525b;
 
-  /* Glass effect */
-  --glass-bg: rgba(18, 18, 26, 0.8);
-  --glass-border: rgba(255, 255, 255, 0.1);
+  --color-accent: #a1a1aa;
+  --color-accent-hover: #d4d4d8;
+  --color-accent-dim: rgba(161, 161, 170, 0.15);
 
-  /* Spacing */
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-error: #ef4444;
+
+  --glass-bg: #27272a;
+  --glass-border: #3f3f46;
+
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 16px;
@@ -42,36 +34,30 @@
   --space-xl: 32px;
   --space-2xl: 48px;
 
-  /* Border Radius */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.3);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.5);
+  --shadow-glow: none;
 
-  /* Transitions */
-  --transition-fast: 150ms ease;
-  --transition-normal: 250ms ease;
-  --transition-slow: 350ms ease;
+  --transition-fast: 300ms ease;
+  --transition-normal: 300ms ease;
+  --transition-slow: 300ms ease;
 
-  /* Layout */
   --navbar-height: 60px;
   --sidebar-width: 320px;
   --epg-sidebar-width: 250px;
 
-  /* Safe area insets for notched devices */
   --safe-area-inset-top: env(safe-area-inset-top, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
   --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-inset-left: env(safe-area-inset-left, 0px);
 }
 
-/* Reset & Base */
 *,
 *::before,
 *::after {
@@ -86,12 +72,29 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--color-text-primary);
+  color: var(--color-text-secondary);
+  /* zinc-400 for body */
   background: var(--color-bg-primary);
   overflow: hidden;
-  /* Prevent pull-to-refresh and overscroll bounce on mobile */
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
+}
+
+@media (hover: none) {
+  * {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  input,
+  textarea,
+  .modal-body,
+  .series-info,
+  .movie-info,
+  .epg-program-desc {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 /* Prevent text selection on touch devices (improves UX) */
@@ -174,6 +177,7 @@ h4 {
 }
 
 .navbar-brand {
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: var(--space-sm);
@@ -183,7 +187,6 @@ h4 {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.75rem;
 }
 
 .logo svg {
@@ -4415,7 +4418,7 @@ kbd {
 }
 
 .user-badge-sso {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #9e9e9e 0%, #686868 100%);
   color: #fff;
   box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
 }
@@ -4448,7 +4451,7 @@ kbd {
   gap: 8px;
   padding: 6px 14px;
   margin-right: var(--space-md);
-  background: linear-gradient(135deg, var(--color-accent) 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, var(--color-accent) 0%, #b4b4b4 100%);
   border-radius: var(--radius-full);
   color: white;
   text-decoration: none;
@@ -4458,14 +4461,14 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 200px;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 2px 8px rgba(132, 132, 133, 0.4);
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
   animation: now-playing-pulse 2s ease-in-out infinite;
 }
 
 .now-playing-indicator:hover {
   transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.5);
+  box-shadow: 0 4px 12px rgba(83, 83, 83, 0.5);
 }
 
 .now-playing-indicator.hidden {

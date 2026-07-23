@@ -114,6 +114,11 @@ class App {
             });
         });
 
+        document.querySelector(".navbar-brand").addEventListener('click', (e) => {
+            e.preventDefault();
+            this.navigateTo('home');    
+        })
+
         // Now Playing indicator
         const nowPlayingBtn = document.getElementById('now-playing-indicator');
         if (nowPlayingBtn) {
@@ -287,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(res => res.json())
         .then(data => {
             const badge = document.getElementById('version-badge');
-            if (badge && data.version) badge.textContent = `v${data.version}`;
+            if (badge && data.version) badge.textContent = `nodecast v${data.version}`;
         })
         .catch(() => { });
 });

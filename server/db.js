@@ -66,14 +66,14 @@ function getDefaultSettings() {
     forceTranscode: false, // Force Audio Transcode
     forceVideoTranscode: false, // Force Video Transcode
     forceRemux: false,
-    autoTranscode: true,
+    autoTranscode: false, // Auto Transcode based on device capabilities
     streamFormat: 'm3u8',
     epgRefreshInterval: '24',
     // User-Agent settings
     userAgentPreset: 'chrome',    // chrome | vlc | tivimate | custom
     userAgentCustom: '',          // Custom UA string when preset is 'custom'
     // Transcoding settings
-    hwEncoder: 'auto',            // auto | nvenc | amf | qsv | vaapi | software
+    hwEncoder: 'software',            // auto | nvenc | amf | qsv | vaapi | software
     maxResolution: '1080p',       // 4k | 1080p | 720p | 480p
     quality: 'medium',            // high | medium | low
     audioMixPreset: 'auto',       // auto | itu | night | cinematic | passthrough
