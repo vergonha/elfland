@@ -11,7 +11,7 @@ const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
-const { Readable } = require('stream');
+const { Readable, pipeline } = require('stream');
 
 // Default cache max age in hours
 const DEFAULT_MAX_AGE_HOURS = 24;
@@ -628,7 +628,11 @@ router.get('/stream', async (req, res) => {
                 headers['Range'] = rangeHeader;
             }
 
-            const response = await fetch(url, { headers });
+            // Abort the upstream download when the viewer closes the tab or seeks away,
+            // otherwise orphaned fetches keep pulling the whole file.
+            const ac = new AbortController();
+            res.on('close', () => ac.abort());
+            const response = await fetch(url, { headers, signal: ac.signal });
 
             // Retry on 5xx errors (transient upstream issues)
             if (response.status >= 500 && attempt < maxRetries) {
@@ -744,19 +748,21 @@ router.get('/stream', async (req, res) => {
             console.log(`[Proxy] Serving binary content (${contentType})`);
             res.set('Content-Type', contentType || 'application/octet-stream');
 
-            // For small files (like encryption keys), collect all data and send at once
-            // This ensures proper Content-Length and response completion
-            const chunks = [firstChunk];
-            let result = await iterator.next();
-            while (!result.done) {
-                chunks.push(Buffer.from(result.value));
-                result = await iterator.next();
-            }
-            const fullContent = Buffer.concat(chunks);
-
-            // Set Content-Length for proper client handling
-            res.set('Content-Length', fullContent.length);
-            res.send(fullContent);
+            // Stream it through. Never buffer: a movie body is GBs and OOMs a small VPS.
+            res.write(firstChunk);
+            pipeline(
+                Readable.from((async function* () {
+                    let r;
+                    while (!(r = await iterator.next()).done) yield r.value;
+                })()),
+                res,
+                (err) => {
+                    // Client disconnects abort the upstream fetch; that is expected, not a crash.
+                    if (err && err.name !== 'AbortError') {
+                        console.error('[Proxy] Stream pipeline error:', err.message);
+                    }
+                }
+            );
             return; // Success - exit the retry loop
 
         } catch (err) {
