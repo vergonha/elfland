@@ -208,6 +208,8 @@ router.get('/', async (req, res) => {
         '-ar', '48000',
         '-b:a', '192k',
         // Handle async audio/video using async filter
+        // DIAGNOSTIC: this filter time-stretches audio to correct PTS drift and can
+        // gradually lower pitch on unstable sources - see transcodeSession.js note.
         '-af', 'aresample=async=1:min_hard_comp=0.100000:first_pts=0',
         // Timestamp handling
         '-fps_mode', 'passthrough',
@@ -257,6 +259,10 @@ router.get('/', async (req, res) => {
     ffmpeg.on('exit', (code) => {
         if (code !== null && code !== 0 && code !== 255) { // 255 is often returned on kill
             console.error(`[Transcode] FFmpeg exited with code ${code}`);
+        } else {
+            // DIAGNOSTIC: for a live stream this ends playback silently - the response
+            // just stops without an HTTP error, which a player may interpret as a stall.
+            console.log(`[Transcode] FFmpeg exited (code ${code}), response stream ending`);
         }
     });
 

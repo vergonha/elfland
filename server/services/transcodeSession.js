@@ -136,6 +136,16 @@ class TranscodeSession extends EventEmitter {
 
             // Handle process exit
             this.process.on('exit', (code) => {
+                // DIAGNOSTIC: if a viewer was active in the last 60s, ffmpeg dying is NOT
+                // a normal end-of-stream for live TV - it leaves stream.m3u8 frozen on disk
+                // while the player keeps polling it, which looks like a stuck/looping buffer
+                // until the page is reloaded (creating a fresh session).
+                const msSinceAccess = Date.now() - this.lastAccess;
+                const hadRecentViewer = msSinceAccess < 60000;
+                if (hadRecentViewer) {
+                    console.warn(`[TranscodeSession ${this.id}] FFmpeg exited (code ${code}) with a viewer active ${msSinceAccess}ms ago - playlist will go stale, player may appear frozen/looping until reload`);
+                }
+
                 if (code === 0 || code === null) {
                     console.log(`[TranscodeSession ${this.id}] FFmpeg completed successfully`);
                     this.status = 'stopped';
@@ -261,6 +271,11 @@ class TranscodeSession extends EventEmitter {
             const panFilter = AUDIO_MIX_FILTERS[mixPreset] || AUDIO_MIX_FILTERS.itu;
 
             console.log(`[TranscodeSession ${this.id}] Audio: ${mixPreset.toUpperCase()} mix (${audioCodec} ${audioChannels}ch -> Stereo AAC)`);
+            // DIAGNOSTIC: aresample=async=1 time-stretches audio to correct PTS drift.
+            // On unstable live sources this can compound over a long session and gradually
+            // lower pitch ("voice getting deeper"). If that symptom shows up, check this
+            // session's stderr log around the same timestamp for DTS/sync warnings.
+            console.log(`[TranscodeSession ${this.id}] Audio filter uses aresample=async=1 (pitch-drift risk on unstable sources)`);
             args.push(
                 '-c:a', 'aac',
                 '-ar', '48000',
@@ -567,6 +582,12 @@ class TranscodeSession extends EventEmitter {
      * Get the HLS playlist content
      */
     async getPlaylist() {
+        // DIAGNOSTIC: serving a playlist for a session whose ffmpeg process already
+        // died means the client is polling a frozen stream.m3u8 - the likely cause
+        // of indefinite buffer loops reported by players until the page is reloaded.
+        if (this.status !== 'running') {
+            console.warn(`[TranscodeSession ${this.id}] Serving playlist from non-running session (status=${this.status}, error=${this.error || 'none'})`);
+        }
         this.touch();
         try {
             return await fs.readFile(this.playlistPath, 'utf8');
@@ -579,6 +600,9 @@ class TranscodeSession extends EventEmitter {
      * Get a specific segment
      */
     async getSegment(segmentName) {
+        if (this.status !== 'running') {
+            console.warn(`[TranscodeSession ${this.id}] Serving segment ${segmentName} from non-running session (status=${this.status}, error=${this.error || 'none'})`);
+        }
         this.touch();
         const segmentPath = path.join(this.dir, segmentName);
         try {

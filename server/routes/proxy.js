@@ -748,18 +748,40 @@ router.get('/stream', async (req, res) => {
             console.log(`[Proxy] Serving binary content (${contentType})`);
             res.set('Content-Type', contentType || 'application/octet-stream');
 
+            // DIAGNOSTIC: the upstream fetch is only aborted when the client disconnects
+            // (res.on('close') above). If the upstream connection stalls instead of closing
+            // (no more data, no error), this pipeline hangs forever holding the response
+            // open, which can look like a frozen/looping player until the page is reloaded.
+            // Watchdog below logs and aborts if no chunk arrives for STALL_TIMEOUT_MS.
+            const STALL_TIMEOUT_MS = 15000;
+            let lastChunkAt = Date.now();
+            const stallCheck = setInterval(() => {
+                const idleMs = Date.now() - lastChunkAt;
+                if (idleMs > STALL_TIMEOUT_MS) {
+                    console.warn(`[Proxy] Upstream stalled for ${idleMs}ms on ${url.substring(0, 80)}..., aborting`);
+                    clearInterval(stallCheck);
+                    ac.abort();
+                }
+            }, 5000);
+
             // Stream it through. Never buffer: a movie body is GBs and OOMs a small VPS.
             res.write(firstChunk);
             pipeline(
                 Readable.from((async function* () {
                     let r;
-                    while (!(r = await iterator.next()).done) yield r.value;
+                    while (!(r = await iterator.next()).done) {
+                        lastChunkAt = Date.now();
+                        yield r.value;
+                    }
                 })()),
                 res,
                 (err) => {
+                    clearInterval(stallCheck);
                     // Client disconnects abort the upstream fetch; that is expected, not a crash.
                     if (err && err.name !== 'AbortError') {
                         console.error('[Proxy] Stream pipeline error:', err.message);
+                    } else if (err) {
+                        console.log(`[Proxy] Stream pipeline aborted (client disconnect or stall watchdog) for ${url.substring(0, 80)}...`);
                     }
                 }
             );

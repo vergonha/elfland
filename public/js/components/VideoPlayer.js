@@ -731,7 +731,19 @@ class VideoPlayer {
 
             // Detect buffer stalls which may indicate codec issues
             this.hls.on(Hls.Events.BUFFER_STALLED_ERROR, () => {
-                console.log('Buffer stalled, attempting recovery...');
+                // DIAGNOSTIC: recoverMediaError() only flushes/re-appends the decode buffer -
+                // it does not fetch new segments. If the playlist itself stopped advancing
+                // (e.g. the server-side ffmpeg session died), this fires repeatedly and the
+                // player just keeps re-decoding the same buffered segment, which sounds like
+                // it's looping the last fraction of a second indefinitely.
+                const now = Date.now();
+                const sinceLastStall = now - (this.lastStallAt || 0);
+                this.stallStreak = sinceLastStall < 10000 ? (this.stallStreak || 0) + 1 : 1;
+                this.lastStallAt = now;
+                console.log(`Buffer stalled (streak=${this.stallStreak}), attempting recovery...`);
+                if (this.stallStreak >= 5) {
+                    console.warn(`[Player] ${this.stallStreak} buffer stalls in a row - likely a dead/stale stream on the server side, not a decode glitch. Check server logs for this session around this time.`);
+                }
                 this.hls.recoverMediaError();
             });
 
