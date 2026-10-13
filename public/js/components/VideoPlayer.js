@@ -825,38 +825,29 @@ class VideoPlayer {
      * Start a HLS transcode session
      */
     async startTranscodeSession(url, options = {}) {
+        const generation = this.playbackGeneration;
+        this.playbackSessions ||= new PlaybackSessions(true);
+        const sessionOptions = options;
         try {
-            console.log('[Player] Starting HLS transcode session...', options);
-            const res = await fetch('/api/transcode/session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, ...options })
-            });
-            if (!res.ok) throw new Error('Failed to start session');
-            const session = await res.json();
+            const session = await this.playbackSessions.create(url, sessionOptions);
+            if (generation !== this.playbackGeneration) return null;
             this.currentSessionId = session.sessionId;
+
             return session.playlistUrl;
-        } catch (err) {
-            console.error('[Player] Session start failed:', err);
-            // Fallback to direct transcode if session fails
-            return `/api/transcode?url=${encodeURIComponent(url)}`;
+        } catch (error) {
+            if (error.name !== 'AbortError' && generation === this.playbackGeneration) {
+                this.stopTranscodeSession();
+                console.error('Unable to start playback:', error.message);
+                this.showError('Unable to start transcoding. Please try again.');
+            }
+            return null;
         }
     }
 
-    /**
-     * Stop and cleanup current transcode session
-     */
-    async stopTranscodeSession() {
-        if (this.currentSessionId) {
-            console.log('[Player] Stopping transcode session:', this.currentSessionId);
-            try {
-                // Fire and forget cleanup
-                fetch(`/api/transcode/${this.currentSessionId}`, { method: 'DELETE' });
-            } catch (err) {
-                console.error('Failed to stop session:', err);
-            }
-            this.currentSessionId = null;
-        }
+    stopTranscodeSession() {
+        this.playbackSessions?.stop();
+        this.currentSessionId = null;
+
     }
 
     /**
@@ -871,6 +862,8 @@ class VideoPlayer {
 
             // Stop current playback
             this.stop();
+            const playbackGeneration = this.playbackGeneration;
+            let probeInfo = null;
             this.updateTranscodeStatus('hidden');
 
             // Hide "select a channel" overlay
@@ -889,6 +882,8 @@ class VideoPlayer {
                 try {
                     const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}`);
                     const info = await probeRes.json();
+                    if (this.playbackGeneration !== playbackGeneration) return;
+                    probeInfo = info;
                     console.log(`[Player] Probe result: video=${info.video}, audio=${info.audio}, ${info.width}x${info.height}, compatible=${info.compatible}`);
 
                     // Store probe result for quality badge display
@@ -928,12 +923,15 @@ class VideoPlayer {
                         const statusMode = this.settings.upscaleEnabled ? 'upscaling' : 'transcoding';
 
                         this.updateTranscodeStatus(statusMode, statusText);
+                        if (this.playbackGeneration !== playbackGeneration) return;
                         const playlistUrl = await this.startTranscodeSession(streamUrl, {
                             videoMode,
                             videoCodec: info.video,
                             audioCodec: info.audio,
-                            audioChannels: info.audioChannels
+                            audioChannels: info.audioChannels,
+                            videoHeight: info.height
                         });
+                        if (!playlistUrl || this.playbackGeneration !== playbackGeneration) return;
                         this.currentUrl = playlistUrl; // Update currentUrl for HLS reload
 
                         this.playHls(playlistUrl);
@@ -947,7 +945,7 @@ class VideoPlayer {
                         // Raw .ts container - use remux
                         console.log('[Player] Auto: Using remux (.ts container)');
                         this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
-                        const remuxUrl = `/api/remux?url=${encodeURIComponent(streamUrl)}`;
+                        const remuxUrl = this.getRemuxUrl(streamUrl, info.audioCodecs || [info.audio]);
                         this.currentUrl = remuxUrl;
                         this.video.src = remuxUrl;
                         this.video.play().catch(e => {
@@ -967,48 +965,20 @@ class VideoPlayer {
                 }
             }
 
+            if (this.playbackGeneration !== playbackGeneration) return;
             // CHECK: Force Video Transcode (Full) or Upscaling
             if (this.settings.forceVideoTranscode || this.settings.upscaleEnabled) {
                 const statusText = this.settings.upscaleEnabled ? 'Upscaling' : 'Transcoding (Video)';
                 const statusMode = this.settings.upscaleEnabled ? 'upscaling' : 'transcoding';
                 console.log(`[Player] ${statusText} enabled. Starting session (encode)...`);
                 this.updateTranscodeStatus(statusMode, statusText);
+                if (this.playbackGeneration !== playbackGeneration) return;
                 const playlistUrl = await this.startTranscodeSession(streamUrl, { videoMode: 'encode' });
+                if (!playlistUrl || this.playbackGeneration !== playbackGeneration) return;
                 this.currentUrl = playlistUrl;
 
-                // Load HLS
-                this.updateNowPlaying(channel, 'Transcoding (Video)');
-                // ... (rest is same logic flow, simplified by just falling through to playHls call if I refactored)
-                // But for minimize drift, I'll copy the block logic for HLS playback init
-                // Actually, I can just fall through if I set looksLikeHls = true?
-                // No, play logic is sequential.
-                if (Hls.isSupported()) {
-                    // Start HLS
-                    // ... this repeats code. I should probably just set currentUrl and let HLS block handle?
-                    // But HLS block is lower down.
-                    // I will just execute the HLS init here as before.
-
-                    // Actually, easiest way is to re-assign streamUrl and goto start? No.
-                    // Copy existing forceTranscode block logic
-                    if (this.hls) {
-                        this.hls.destroy();
-                    }
-                    this.hls = new Hls();
-                    this.hls.loadSource(playlistUrl);
-                    this.hls.attachMedia(this.video);
-                    this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        this.video.play().catch(console.error);
-                    });
-                    // Handle errors
-                    this.hls.on(Hls.Events.ERROR, (event, data) => {
-                        if (data.fatal) {
-                            console.log('[Player] HLS fatal error');
-                            this.hls.destroy();
-                        }
-                    });
-
-                    return; // Exit
-                }
+                this.playHls(playlistUrl);
+                return;
             }
 
             // CHECK: Force Audio Transcode (Copy Video) - legacy forceTranscode setting
@@ -1021,10 +991,13 @@ class VideoPlayer {
                 try {
                     const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}`);
                     const info = await probeRes.json();
-                    videoCodec = info.video;
+                    if (this.playbackGeneration !== playbackGeneration) return;
+                videoCodec = info.video;
                 } catch (e) { console.warn('Probe failed for force audio, assuming h264'); }
 
+                if (this.playbackGeneration !== playbackGeneration) return;
                 const playlistUrl = await this.startTranscodeSession(streamUrl, { videoMode: 'copy', videoCodec });
+                if (!playlistUrl || this.playbackGeneration !== playbackGeneration) return;
                 this.currentUrl = playlistUrl;
 
                 console.log('[Player] Playing transcoded HLS stream:', playlistUrl);
@@ -1066,7 +1039,17 @@ class VideoPlayer {
                 console.log('[Player] Force Remux enabled. Routing through FFmpeg remux...');
                 console.log('[Player] Stream type:', isRawTs ? 'Raw TS' : 'Extension-less (assumed TS)');
                 this.updateTranscodeStatus('remuxing', 'Remux (Force)');
-                const remuxUrl = this.getRemuxUrl(streamUrl);
+                if (!probeInfo) {
+                    try {
+                        const response = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}`);
+                        probeInfo = await response.json();
+                    } catch (error) {
+                        console.warn('[Player] Remux probe failed:', error.message);
+                    }
+                }
+                if (this.playbackGeneration !== playbackGeneration) return;
+                const remuxUrl = this.getRemuxUrl(streamUrl, probeInfo?.audioCodecs || (probeInfo?.audio ? [probeInfo.audio] : []));
+                this.currentUrl = remuxUrl;
                 this.video.src = remuxUrl;
                 this.video.play().catch(e => {
                     if (e.name !== 'AbortError') console.log('[Player] Autoplay prevented:', e);
@@ -1207,20 +1190,24 @@ class VideoPlayer {
         }
 
         this.hls = new Hls(this.getHlsConfig());
+        const hls = this.hls, generation = this.playbackGeneration;
         this.hls.loadSource(url);
         this.hls.attachMedia(this.video);
 
         this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (this.hls !== hls || this.playbackGeneration !== generation) return;
             this.video.play().catch(e => {
                 if (e.name !== 'AbortError') console.log('Autoplay prevented:', e);
             });
         });
 
         this.hls.on(Hls.Events.ERROR, (event, data) => {
+            if (this.hls !== hls || this.playbackGeneration !== generation) return;
             if (data.fatal) {
                 // Simple error handling for forced HLS/transcode modes
                 console.error('Fatal HLS error in transcode mode:', data);
                 this.hls.destroy();
+                this.stopTranscodeSession();
             }
         });
     }
@@ -1380,8 +1367,8 @@ class VideoPlayer {
      * Get remuxed URL for a stream (container conversion only, no re-encoding)
      * Used for raw .ts streams that browsers can't play directly
      */
-    getRemuxUrl(url) {
-        return `/api/remux?url=${encodeURIComponent(url)}`;
+    getRemuxUrl(url, audioCodecs = []) {
+        return `/api/remux?url=${encodeURIComponent(url)}&audioCodecs=${encodeURIComponent(audioCodecs.join(','))}`;
     }
 
     /**
@@ -1400,6 +1387,7 @@ class VideoPlayer {
      * Stop playback
      */
     stop() {
+        this.playbackGeneration = (this.playbackGeneration || 0) + 1;
         // Stop any running transcode session first
         this.stopTranscodeSession();
 

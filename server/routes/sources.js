@@ -92,12 +92,15 @@ router.put('/:id', async (req, res) => {
         }
 
         const { name, url, username, password } = req.body;
-        const updated = await sources.update(req.params.id, {
-            name: name || existing.name,
-            url: url || existing.url,
-            username: username !== undefined ? username : existing.username,
-            password: password !== undefined ? password : existing.password
-        });
+        // Omitted fields must be merged against the latest record inside the
+        // database transaction, not the snapshot read before another edit.
+        const updates = {};
+        if (name) updates.name = name;
+        if (url) updates.url = url;
+        if (username !== undefined) updates.username = username;
+        if (password !== undefined) updates.password = password;
+        const updated = await sources.update(req.params.id, updates);
+        if (!updated) return res.status(404).json({ error: 'Source not found' });
         // Trigger Sync (if critical fields changed? safely just trigger it)
         syncService.syncSource(parseInt(req.params.id)).catch(console.error);
         res.json(updated);
@@ -117,6 +120,7 @@ router.delete('/:id', async (req, res) => {
         }
 
         // Cascade delete: Clean up SQLite data for this source
+        syncService.invalidateEpgSource(sourceId);
         const db = getDb();
         const deleteCategories = db.prepare('DELETE FROM categories WHERE source_id = ?');
         const deleteItems = db.prepare('DELETE FROM playlist_items WHERE source_id = ?');

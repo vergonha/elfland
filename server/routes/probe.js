@@ -1,3 +1,4 @@
+const { redactUrl, redactText, validateHttpUrl, FFMPEG_PROTOCOL_WHITELIST } = require('../services/urlSecurity');
 const express = require('express');
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -33,9 +34,15 @@ function probeStream(url, ffprobePath, userAgent = null, timeout = 15000) {
         const args = [
             '-v', 'error',
             '-user_agent', userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            '-multiple_requests', '0',
+            '-reconnect', '1',
+            '-reconnect_streamed', '1',
+            '-reconnect_on_http_error', '4xx,5xx',
+            '-reconnect_delay_max', '10',
             '-print_format', 'json',
             '-show_streams',
             '-show_format',
+            '-protocol_whitelist', FFMPEG_PROTOCOL_WHITELIST,
             '-probesize', '5000000',
             '-analyzeduration', '5000000',
             url
@@ -128,6 +135,10 @@ function analyzeProbeResult(probeResult, url) {
     return {
         video: videoCodec,
         audio: audioCodec,
+        duration: Number.isFinite(Number(format.duration)) && Number(format.duration) > 0
+            ? Number(format.duration) : 0,
+        audioCodecs: streams.filter(s => s.codec_type === 'audio')
+            .map(s => s.codec_name?.toLowerCase() || 'unknown'),
         width: videoStream?.width || 0,
         height: videoStream?.height || 0,
         audioChannels: audioStream?.channels || 0, // For Smart Audio Copy
@@ -141,6 +152,7 @@ function analyzeProbeResult(probeResult, url) {
 
 router.get('/', async (req, res) => {
     const { url, ua } = req.query;
+    try { validateHttpUrl(url); } catch (error) { return res.status(400).json({ error: error.message }); }
     if (!url) {
         return res.status(400).json({ error: 'URL parameter is required' });
     }
@@ -164,11 +176,11 @@ router.get('/', async (req, res) => {
     // Check cache
     const cached = probeCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-        console.log(`[Probe] Cache hit for: ${url.substring(0, 50)}...`);
+        console.log(`[Probe] Cache hit for: ${redactUrl(url)}...`);
         return res.json(cached.result);
     }
 
-    console.log(`[Probe] Probing: ${url.substring(0, 80)}... ${ua ? `(UA: ${ua})` : ''}`);
+    console.log(`[Probe] Probing: ${redactUrl(url)}... ${ua ? `(UA: ${ua})` : ''}`);
 
     try {
         const probeResult = await probeStream(url, ffprobePath, ua);
@@ -186,7 +198,7 @@ router.get('/', async (req, res) => {
         console.error('[Probe] Failed:', err.message);
 
         // On error, assume transcode needed to be safe
-        res.json({
+        const fallback = {
             video: 'unknown',
             audio: 'unknown',
             container: 'unknown',
@@ -194,7 +206,11 @@ router.get('/', async (req, res) => {
             needsRemux: false,
             needsTranscode: true,
             error: err.message
-        });
+        };
+
+        probeCache.set(cacheKey, { result: fallback, timestamp: Date.now() - (CACHE_TTL - 30000) });
+
+        res.json(fallback);
     }
 });
 

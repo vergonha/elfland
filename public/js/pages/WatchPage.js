@@ -180,7 +180,14 @@ class WatchPage {
         });
 
         // Progress bar
-        this.progressSlider?.addEventListener('input', (e) => this.seek(e.target.value));
+        this.progressSlider?.addEventListener('input', e => {
+            this.progressScrubbing = true;
+            this.timeCurrent.textContent = this.formatTime(this.getPlaybackDuration() * Number(e.target.value) / 100);
+        });
+        this.progressSlider?.addEventListener('change', e => {
+            this.progressScrubbing = false;
+            this.seek(e.target.value);
+        });
 
         // Video events
         this.video?.addEventListener('timeupdate', () => this.updateProgress());
@@ -246,6 +253,8 @@ class WatchPage {
      * @param {string} streamUrl - Stream URL
      */
     async play(content, streamUrl) {
+        this.stop();
+        this.sourceDuration = 0;
         this.content = content;
         this.contentType = content.type;
         this.seriesInfo = content.seriesInfo || null;
@@ -273,7 +282,10 @@ class WatchPage {
         this.subtitleEl.textContent = content.subtitle || '';
 
         // Load video
-        await this.loadVideo(streamUrl);
+        const loading = this.loadVideo(streamUrl);
+        const generation = this.playbackGeneration;
+        await loading;
+        if (this.playbackGeneration !== generation) return;
 
         // Show Now Playing indicator in navbar
         this.showNowPlaying(content.title);
@@ -327,42 +339,32 @@ class WatchPage {
      * Start a HLS transcode session
      */
     async startTranscodeSession(url, options = {}) {
+        const generation = this.playbackGeneration;
+        this.playbackSessions ||= new PlaybackSessions(false);
+        const sessionOptions = { seekOffset: this.resumeTime, ...options };
         try {
-            console.log('[WatchPage] Starting HLS transcode session...', options);
-            const res = await fetch('/api/transcode/session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    url,
-                    seekOffset: this.resumeTime, // Pass resume point to backend
-                    ...options
-                })
-            });
-            if (!res.ok) throw new Error('Failed to start session');
-            const session = await res.json();
+            const session = await this.playbackSessions.create(url, sessionOptions);
+            if (generation !== this.playbackGeneration) return null;
             this.currentSessionId = session.sessionId;
+            this.playbackTimeOffset = Number(sessionOptions.seekOffset) || 0;
+            this.resumeTime = 0;
+            this.currentTranscodeOptions = sessionOptions;
             return session.playlistUrl;
-        } catch (err) {
-            console.error('[WatchPage] Session start failed:', err);
-            // Fallback to direct transcode if session fails
-            return `/api/transcode?url=${encodeURIComponent(url)}`;
+        } catch (error) {
+            if (error.name !== 'AbortError' && generation === this.playbackGeneration) {
+                this.stopTranscodeSession();
+                console.error('Unable to start playback:', error.message);
+                this.updateTranscodeStatus('error', 'Unable to start playback');
+                this.loadingSpinner?.classList.remove('show');
+            }
+            return null;
         }
     }
 
-    /**
-     * Stop and cleanup current transcode session
-     */
-    async stopTranscodeSession() {
-        if (this.currentSessionId) {
-            console.log('[WatchPage] Stopping transcode session:', this.currentSessionId);
-            try {
-                // Fire and forget cleanup
-                fetch(`/api/transcode/${this.currentSessionId}`, { method: 'DELETE' });
-            } catch (err) {
-                console.error('Failed to stop session:', err);
-            }
-            this.currentSessionId = null;
-        }
+    stopTranscodeSession() {
+        this.playbackSessions?.stop();
+        this.currentSessionId = null;
+        this.playbackTimeOffset = 0;
     }
 
     async updateTranscodeStatus(mode, text) {
@@ -414,7 +416,11 @@ class WatchPage {
         this.currentUrl = url;
 
         // Stop any existing playback
+        const knownDuration = this.sourceDuration;
         this.stop();
+        this.setSourceDuration(VodDuration.firstValid(VodDuration.fromContent(this.content || {}), knownDuration));
+        const playbackGeneration = this.playbackGeneration;
+        let probeInfo = null;
 
         // Show loading spinner
         this.showLoading();
@@ -427,6 +433,7 @@ class WatchPage {
             console.warn('Could not load settings');
         }
 
+        if (this.playbackGeneration !== playbackGeneration) return;
         // Detect stream type
         const looksLikeHls = url.includes('.m3u8') || url.includes('m3u8');
         const isRawTs = url.includes('.ts') && !url.includes('.m3u8');
@@ -439,6 +446,9 @@ class WatchPage {
                 const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
                 const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
                 const info = await probeRes.json();
+                if (this.playbackGeneration !== playbackGeneration) return;
+                probeInfo = info;
+                this.setSourceDuration(info.duration);
                 console.log(`[WatchPage] Probe result: video=${info.video}, audio=${info.audio}, ${info.width}x${info.height}, compatible=${info.compatible}`);
 
                 // Store early probe info for quality display
@@ -455,13 +465,16 @@ class WatchPage {
                     const statusMode = settings.upscaleEnabled ? 'upscaling' : 'transcoding';
 
                     this.updateTranscodeStatus(statusMode, statusText);
+                    if (this.playbackGeneration !== playbackGeneration) return;
                     const playlistUrl = await this.startTranscodeSession(url, {
                         videoMode,
                         seekOffset: this.resumeTime, // Ensure seekOffset is passed
                         videoCodec: info.video,
                         audioCodec: info.audio,
-                        audioChannels: info.audioChannels
+                        audioChannels: info.audioChannels,
+                        videoHeight: info.height
                     });
+                    if (!playlistUrl || this.playbackGeneration !== playbackGeneration) return;
                     this.playHls(playlistUrl);
                     this.setVolumeFromStorage();
                     return;
@@ -470,7 +483,7 @@ class WatchPage {
                     // TODO: Move remux to session logic if seeking is needed for TS files
                     console.log('[WatchPage] Auto: Using remux (.ts container)');
                     this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
-                    const finalUrl = `/api/remux?url=${encodeURIComponent(url)}`;
+                    const finalUrl = this.getRemuxUrl(url, info.audioCodecs || [info.audio]);
                     this.video.src = finalUrl;
                     this.video.play().catch(e => {
                         if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
@@ -486,16 +499,19 @@ class WatchPage {
             }
         }
 
+        if (this.playbackGeneration !== playbackGeneration) return;
         // Priority 1: Force Video Transcode (Full) or Upscaling
         if (settings.forceVideoTranscode || settings.upscaleEnabled) {
             const statusText = settings.upscaleEnabled ? 'Upscaling' : 'Transcoding (Video)';
             const statusMode = settings.upscaleEnabled ? 'upscaling' : 'transcoding';
             console.log(`[WatchPage] ${statusText} enabled. Starting session (encode)...`);
             this.updateTranscodeStatus(statusMode, statusText);
+            if (this.playbackGeneration !== playbackGeneration) return;
             const playlistUrl = await this.startTranscodeSession(url, {
                 videoMode: 'encode',
                 seekOffset: this.resumeTime
             });
+            if (!playlistUrl || this.playbackGeneration !== playbackGeneration) return;
             this.playHls(playlistUrl);
             this.setVolumeFromStorage();
             return;
@@ -511,14 +527,17 @@ class WatchPage {
                 const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
                 const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
                 const info = await probeRes.json();
+                if (this.playbackGeneration !== playbackGeneration) return;
                 videoCodec = info.video;
             } catch (e) { console.warn('Probe failed for force audio, assuming h264'); }
 
+            if (this.playbackGeneration !== playbackGeneration) return;
             const playlistUrl = await this.startTranscodeSession(url, {
                 videoMode: 'copy',
                 videoCodec,
                 seekOffset: this.resumeTime
             });
+            if (!playlistUrl || this.playbackGeneration !== playbackGeneration) return;
             this.playHls(playlistUrl);
             this.setVolumeFromStorage();
             return;
@@ -528,7 +547,17 @@ class WatchPage {
         if (settings.forceRemux && isRawTs) {
             console.log('[WatchPage] Force Remux enabled');
             this.updateTranscodeStatus('remuxing', 'Remux (Force)');
-            const finalUrl = `/api/remux?url=${encodeURIComponent(url)}`;
+            if (!probeInfo) {
+                try {
+                    const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
+                    const response = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
+                    probeInfo = await response.json();
+                } catch (error) {
+                    console.warn('[WatchPage] Remux probe failed:', error.message);
+                }
+            }
+            if (this.playbackGeneration !== playbackGeneration) return;
+            const finalUrl = this.getRemuxUrl(url, probeInfo?.audioCodecs || (probeInfo?.audio ? [probeInfo.audio] : []));
             this.video.src = finalUrl;
             this.video.play().catch(e => {
                 if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
@@ -575,27 +604,32 @@ class WatchPage {
             enableWorker: true,
         });
 
+        const hls = this.hls, generation = this.playbackGeneration;
         this.hls.loadSource(url);
         this.hls.attachMedia(this.video);
 
         // Listen for subtitle track updates
         this.hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (event, data) => {
+            if (this.hls !== hls || this.playbackGeneration !== generation) return;
             console.log('[WatchPage] Subtitle tracks updated:', data.subtitleTracks);
             // Wait a moment for native text tracks to populate
-            setTimeout(() => this.updateCaptionsTracks(), 100);
+            setTimeout(() => { if (this.hls === hls && this.playbackGeneration === generation) this.updateCaptionsTracks(); }, 100);
         });
 
         this.hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (event, data) => {
+            if (this.hls !== hls || this.playbackGeneration !== generation) return;
             console.log('[WatchPage] Subtitle track switched:', data);
         });
 
         this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (this.hls !== hls || this.playbackGeneration !== generation) return;
             this.video.play().catch(e => {
                 if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
             });
         });
 
         this.hls.on(Hls.Events.ERROR, (event, data) => {
+            if (this.hls !== hls || this.playbackGeneration !== generation) return;
             if (data.fatal) {
                 console.error('[WatchPage] HLS fatal error:', data);
                 // Try proxy on CORS error (only if not already proxied/transcoded)
@@ -605,6 +639,7 @@ class WatchPage {
                     this.playHls(`/api/proxy/stream?url=${encodeURIComponent(this.currentUrl)}`);
                 } else {
                     this.hls.destroy();
+                    this.stopTranscodeSession();
                 }
             }
         });
@@ -616,10 +651,24 @@ class WatchPage {
         if (this.volumeSlider) this.volumeSlider.value = savedVolume;
     }
 
+    getRemuxUrl(url, audioCodecs = []) {
+        return `/api/remux?url=${encodeURIComponent(url)}&audioCodecs=${encodeURIComponent(audioCodecs.join(','))}`;
+    }
+
     stop() {
+        this.playbackGeneration = (this.playbackGeneration || 0) + 1;
         // Stop history tracking and save final progress
         this.stopHistoryTracking();
         this.saveProgress();
+        this.sourceDuration = 0;
+        this.durationReady = false;
+        this.pendingSeekProgress = null;
+        this.progressScrubbing = false;
+        if (this.timeTotal) {
+            this.timeTotal.textContent = '';
+            this.timeTotal.classList.add('hidden');
+        }
+        if (this.durationEl) this.durationEl.textContent = '';
 
         // Cleanup transcode session if exists
         this.stopTranscodeSession();
@@ -655,15 +704,33 @@ class WatchPage {
     }
 
     skip(seconds) {
-        if (this.video) {
-            this.video.currentTime = Math.max(0, Math.min(this.video.currentTime + seconds, this.video.duration || 0));
-        }
+        return this.seekToContentTime(this.getCurrentPlaybackTime() + seconds);
     }
 
     seek(percent) {
-        if (this.video && this.video.duration) {
-            this.video.currentTime = (percent / 100) * this.video.duration;
-        }
+        return this.seekToContentTime(Number(percent) * this.getPlaybackDuration() / 100);
+    }
+
+    getCurrentPlaybackTime() {
+        if (Number.isFinite(this.pendingSeekProgress)) return this.pendingSeekProgress;
+        const relative = Number(this.video?.currentTime) || 0;
+        return relative + (this.currentSessionId ? this.playbackTimeOffset || 0 : 0);
+    }
+
+    async seekToContentTime(requestedTime) {
+        if (!this.video) return;
+        const duration = this.getPlaybackDuration();
+        if (!duration || !Number.isFinite(requestedTime)) return;
+        const target = Math.max(0, Math.min(requestedTime, Math.max(0, duration - 0.25)));
+        if (!this.currentSessionId) { this.video.currentTime = target; return; }
+        const generation = this.playbackGeneration;
+        this.pendingSeekProgress = target;
+        this.hls?.destroy();
+        this.hls = null;
+        this.video.pause();
+        this.showLoading();
+        const playlist = await this.startTranscodeSession(this.currentUrl, { ...this.currentTranscodeOptions, seekOffset: target });
+        if (playlist && generation === this.playbackGeneration) this.playHls(playlist);
     }
 
     toggleMute() {
@@ -767,19 +834,42 @@ class WatchPage {
 
     // === UI Updates ===
 
-    updateProgress() {
-        if (!this.video || !this.video.duration) return;
+    getPlaybackDuration() {
+        if (this.sourceDuration > 0) return this.sourceDuration;
+        return !this.currentSessionId && this.durationReady ? VodDuration.parse(this.video?.duration) : 0;
+    }
 
-        const percent = (this.video.currentTime / this.video.duration) * 100;
-        this.progressSlider.value = percent;
-        this.timeCurrent.textContent = this.formatTime(this.video.currentTime);
+    setSourceDuration(value) {
+        const duration = VodDuration.parse(value);
+        if (duration > 0) this.sourceDuration = duration;
+        this.updateDurationDisplay();
+    }
+
+    updateDurationDisplay() {
+        const duration = this.getPlaybackDuration();
+        const label = duration > 0 ? this.formatTime(duration) : '';
+        if (this.timeTotal) {
+            this.timeTotal.textContent = label;
+            this.timeTotal.classList.toggle('hidden', !label);
+        }
+        if (this.durationEl) this.durationEl.textContent = label;
+    }
+
+    updateProgress() {
+        if (!this.video) return;
+        this.updateDurationDisplay();
+        const currentTime = this.getCurrentPlaybackTime(), duration = this.getPlaybackDuration();
+        if (!this.progressScrubbing) {
+            this.progressSlider.value = duration > 0 ? Math.min(100, currentTime / duration * 100) : 0;
+            this.timeCurrent.textContent = this.formatTime(currentTime);
+        }
 
         // Show "Up Next" panel early for series (like streaming services do during credits)
         // Only show if auto-play next episode is enabled
         const autoPlayEnabled = this.app?.player?.settings?.autoPlayNextEpisode;
         if (autoPlayEnabled && this.contentType === 'series' && this.seriesInfo && !this.nextEpisodeShowing && !this.nextEpisodeDismissed) {
-            const duration = this.video.duration;
-            const currentTime = this.video.currentTime;
+            const duration = this.getPlaybackDuration();
+            const currentTime = this.getCurrentPlaybackTime();
 
             // Only proceed if we have reliable duration data
             if (isFinite(duration) && duration >= 180 && currentTime >= 120) {
@@ -798,6 +888,10 @@ class WatchPage {
     }
 
     onMetadataLoaded() {
+        this.pendingSeekProgress = null;
+        this.durationReady = true;
+        if (!this.currentSessionId) this.setSourceDuration(this.video?.duration);
+        else this.updateDurationDisplay();
         // Detect resolution
         if (this.video && this.video.videoHeight > 0) {
             this.currentStreamInfo = {
@@ -866,7 +960,7 @@ class WatchPage {
     }
 
     formatTime(seconds) {
-        if (!seconds || isNaN(seconds)) return '0:00';
+        if (!Number.isFinite(Number(seconds)) || Number(seconds) < 0) return '0:00';
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = Math.floor(seconds % 60);
@@ -1052,6 +1146,7 @@ class WatchPage {
         this.yearEl.textContent = this.content.year || '';
         this.ratingEl.textContent = this.content.rating ? `★ ${this.content.rating}` : '';
         this.descriptionEl.textContent = this.content.description || '';
+        this.updateDurationDisplay();
 
         // Update play button text
         if (this.playBtnText) {
@@ -1174,7 +1269,8 @@ class WatchPage {
                     year: movie.year,
                     rating: movie.rating,
                     sourceId: sourceId,
-                    categoryId: movie.category_id
+                    categoryId: movie.category_id,
+                    duration: VodDuration.fromContent(movie)
                 }, result.url);
             }
         } catch (e) {
@@ -1240,6 +1336,7 @@ class WatchPage {
         const episodeId = episodeEl.dataset.episodeId;
         const seasonNum = episodeEl.dataset.season;
         const episodeNum = episodeEl.dataset.episode;
+        const episode = this.seriesInfo?.episodes?.[seasonNum]?.find(ep => String(ep.id) === String(episodeId));
         const container = episodeEl.dataset.container || 'mp4';
 
         try {
@@ -1261,7 +1358,8 @@ class WatchPage {
                     seriesId: this.content.seriesId,
                     seriesInfo: this.seriesInfo,
                     currentSeason: seasonNum,
-                    currentEpisode: episodeNum
+                    currentEpisode: episodeNum,
+                    duration: VodDuration.fromContent(episode || {})
                 }, result.url);
             }
         } catch (e) {
@@ -1352,7 +1450,8 @@ class WatchPage {
                     seriesId: this.content.seriesId,
                     seriesInfo: this.seriesInfo,
                     currentSeason: nextEp.seasonNum,
-                    currentEpisode: nextEp.episode_num
+                    currentEpisode: nextEp.episode_num,
+                    duration: VodDuration.fromContent(nextEp)
                 }, result.url);
             }
         } catch (e) {
@@ -1407,10 +1506,10 @@ class WatchPage {
     }
 
     async saveProgress() {
-        if (!this.content || !this.video || this.video.paused) return;
+        if (!this.content || !this.video || !this.video.src || this.video.paused) return;
 
-        const progress = Math.floor(this.video.currentTime);
-        const duration = Math.floor(this.video.duration);
+        const progress = Math.floor(this.getCurrentPlaybackTime());
+        const duration = Math.floor(this.getPlaybackDuration());
 
         if (isNaN(progress) || isNaN(duration) || duration <= 0) return;
 
