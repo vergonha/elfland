@@ -996,7 +996,7 @@ video::cue {
 .up-next h4 {
   font-size: 0.75rem;
   color: var(--color-text-muted);
-  text-transform: uppercase;
+  text-transform: lowercase;
   margin-bottom: var(--space-sm);
 }
 
@@ -1322,7 +1322,7 @@ video::cue {
 .hidden-item-type {
   font-size: 0.75rem;
   color: var(--color-text-muted);
-  text-transform: uppercase;
+  text-transform: lowercase;
 }
 
 /* Settings Sections */
@@ -3672,7 +3672,7 @@ kbd {
 .captions-menu-title {
   padding: var(--space-sm) var(--space-md);
   font-size: 0.75rem;
-  text-transform: uppercase;
+  text-transform: lowercase;
   color: var(--color-text-muted);
   border-bottom: 1px solid var(--glass-border);
 }
@@ -3829,7 +3829,7 @@ kbd {
 
 .next-label {
   font-size: 0.75rem;
-  text-transform: uppercase;
+  text-transform: lowercase;
   color: var(--color-text-muted);
   margin: 0 0 var(--space-xs) 0;
 }
@@ -4420,7 +4420,7 @@ kbd {
   padding: 2px 10px;
   font-size: 0.7rem;
   font-weight: 600;
-  text-transform: uppercase;
+  text-transform: lowercase;
   letter-spacing: 0.5px;
   border-radius: 12px;
   white-space: nowrap;
@@ -5206,4 +5206,16 @@ select:disabled {
   width: 14px;
   height: 14px;
   border-radius: 0;
+}
+
+/* Everything is lowercase. Form controls reset text-transform in the UA
+   stylesheet, so they need it set explicitly. */
+html,
+body,
+button,
+input,
+select,
+option,
+textarea {
+  text-transform: lowercase;
 }
