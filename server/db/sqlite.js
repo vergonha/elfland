@@ -21,6 +21,7 @@ function getDb() {
         // Optimize performance
         db.pragma('journal_mode = WAL');
         db.pragma('synchronous = NORMAL');
+        require('../services/contentFilter').registerSqlFunctions(db);
         initSchema();
     }
     return db;

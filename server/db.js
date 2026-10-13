@@ -79,6 +79,7 @@ function getDefaultSettings() {
     forceTranscode: false, // Force Audio Transcode
     forceVideoTranscode: false, // Force Video Transcode
     forceRemux: false,
+    blockAdultContent: true,      // Hide adult categories/items from every API response
     autoTranscode: false, // Auto Transcode based on device capabilities
     streamFormat: 'm3u8',
     epgRefreshInterval: '24',

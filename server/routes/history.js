@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/sqlite');
 const { requireAuth } = require('../auth');
+const contentFilter = require('../services/contentFilter');
 
 // Middleware to ensure authentication
 router.use(requireAuth);
@@ -23,10 +24,15 @@ router.get('/', (req, res) => {
             LIMIT ?
         `).all(userId, limit);
 
-        const history = rows.map(row => ({
-            ...row,
-            data: JSON.parse(row.data || '{}')
-        }));
+        const history = rows
+            .map(row => ({
+                ...row,
+                data: JSON.parse(row.data || '{}')
+            }))
+            .filter(row => !contentFilter.isEnabled()
+                || !(contentFilter.isAdultItemName(row.data.title || row.data.name)
+                    || contentFilter.isAdultStoredItem(db, row.source_id, row.item_id)
+                    || (row.parent_id && contentFilter.isAdultStoredItem(db, row.source_id, row.parent_id))));
 
         res.json(history);
     } catch (err) {

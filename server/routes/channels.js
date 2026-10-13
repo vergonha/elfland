@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/sqlite');
+const contentFilter = require('../services/contentFilter');
 
 // Helper to map API item types to DB types and tables
 function mapItemType(apiType) {
@@ -308,6 +309,7 @@ router.get('/recent', async (req, res) => {
                     AND c.type = p.type 
                     AND c.is_hidden = 1
               )
+              ${contentFilter.itemClause('p')}
             ORDER BY p.added_at DESC
             LIMIT ?
         `).all(type, parseInt(limit));

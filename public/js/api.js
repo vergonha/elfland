@@ -152,6 +152,7 @@ const API = {
         get: () => API.request('GET', '/settings'),
         update: (data) => API.request('PUT', '/settings', data),
         reset: () => API.request('DELETE', '/settings'),
+        setContentFilter: (enabled) => API.request('PUT', '/settings/content-filter', { enabled }),
         getDefaults: () => API.request('GET', '/settings/defaults')
     },
 

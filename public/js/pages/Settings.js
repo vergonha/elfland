@@ -25,6 +25,42 @@ class SettingsPage {
 
         // User management (admin only)
         this.initUserManagement();
+
+        // Adult content filter (admin only)
+        this.initAdultFilter();
+    }
+
+    initAdultFilter() {
+        const toggle = document.getElementById('setting-block-adult');
+        toggle?.addEventListener('change', async () => {
+            toggle.disabled = true;
+            try {
+                await API.settings.setContentFilter(toggle.checked);
+                // Cached channel, movie and series lists were loaded with the old rule
+                window.location.reload();
+            } catch (err) {
+                console.error('[Settings] Failed to update adult content filter:', err);
+                toggle.checked = !toggle.checked;
+                toggle.disabled = false;
+            }
+        });
+    }
+
+    async loadAdultFilter() {
+        const section = document.getElementById('adult-filter-section');
+        const toggle = document.getElementById('setting-block-adult');
+        if (!section || !toggle) return;
+
+        const isAdmin = this.app.currentUser && this.app.currentUser.role === 'admin';
+        section.style.display = isAdmin ? '' : 'none';
+        if (!isAdmin) return;
+
+        try {
+            const s = await API.settings.get();
+            toggle.checked = s.blockAdultContent !== false;
+        } catch (err) {
+            console.error('[Settings] Failed to load adult content filter:', err);
+        }
     }
 
     initPlayerSettings() {
@@ -542,6 +578,8 @@ class SettingsPage {
                 usersTab.style.display = 'block';
             }
         }
+
+        this.loadAdultFilter();
 
         // Load sources when page is shown
         await this.app.sourceManager.loadSources();

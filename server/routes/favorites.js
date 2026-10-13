@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { favorites } = require('../db/sqlite');
+const { favorites, getDb } = require('../db/sqlite');
+const contentFilter = require('../services/contentFilter');
 const { requireAuth } = require('../auth');
 
 // All favorites routes require authentication
@@ -10,7 +11,10 @@ router.use(requireAuth);
 router.get('/', async (req, res) => {
     try {
         const { sourceId, itemType } = req.query;
-        const items = favorites.getAll(req.user.id, sourceId || null, itemType || null);
+        const db = getDb();
+        const items = favorites
+            .getAll(req.user.id, sourceId || null, itemType || null)
+            .filter(f => !contentFilter.isAdultStoredItem(db, f.source_id, f.item_id));
         res.json(items);
     } catch (err) {
         res.status(500).json({ error: err.message });

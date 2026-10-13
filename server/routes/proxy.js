@@ -13,6 +13,7 @@ const { getDb } = require('../db/sqlite'); // Import SQLite
 const xtreamApi = require('../services/xtreamApi');
 const epgParser = require('../services/epgParser');
 const cache = require('../services/cache');
+const contentFilter = require('../services/contentFilter');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -35,6 +36,7 @@ function getCategoriesFromDb(sourceId, type, includeHidden = false) {
     if (!includeHidden) {
         query += ` AND is_hidden = 0`;
     }
+    query += contentFilter.categoryClause('categories');
     query += ` ORDER BY name ASC`;
     const cats = db.prepare(query).all(sourceId, type);
     return cats;
@@ -51,6 +53,7 @@ function getStreamsFromDb(sourceId, type, categoryId = null, includeHidden = fal
     if (!includeHidden) {
         query += ` AND is_hidden = 0`;
     }
+    query += contentFilter.itemClause('playlist_items');
     const params = [sourceId, type];
 
     if (categoryId) {
@@ -198,6 +201,9 @@ router.get('/xtream/:sourceId/series_info', async (req, res) => {
 
         const seriesId = req.query.series_id;
         if (!seriesId) return res.status(400).send('series_id required');
+        if (contentFilter.isAdultStoredItem(getDb(), source.id, seriesId, 'series')) {
+            return res.status(404).json({ error: 'Not found' });
+        }
 
         const cacheKey = `series_info_${seriesId}`;
         const cached = cache.get('xtream', source.id, cacheKey, 3600000);
@@ -220,6 +226,9 @@ router.get('/xtream/:sourceId/vod_info', async (req, res) => {
 
         const vodId = req.query.vod_id;
         if (!vodId) return res.status(400).send('vod_id required');
+        if (contentFilter.isAdultStoredItem(getDb(), source.id, vodId, 'movie')) {
+            return res.status(404).json({ error: 'Not found' });
+        }
 
         const cacheKey = `vod_info_${vodId}`;
         const cached = cache.get('xtream', source.id, cacheKey, 3600000);
@@ -246,6 +255,9 @@ router.get('/xtream/:sourceId/stream/:streamId/:type', async (req, res) => {
         const streamId = req.params.streamId;
         const type = req.params.type || 'live';
         const container = req.query.container || 'm3u8';
+        if (contentFilter.isAdultStoredItem(getDb(), source.id, streamId)) {
+            return res.status(404).json({ error: 'Not found' });
+        }
 
         // Construct the Xtream stream URL
         // Format: http://server:port/live/username/password/streamId.container (for live)
@@ -341,7 +353,10 @@ router.get('/epg/:sourceId', async (req, res) => {
         `;
         const params = [sourceId, windowStart, windowEnd];
 
-        const programs = db.prepare(programsQuery).all(...params);
+        let programs = db.prepare(programsQuery).all(...params);
+        if (contentFilter.isEnabled()) {
+            programs = programs.filter(p => !contentFilter.isAdultItemName(p.title));
+        }
 
         const formattedPrograms = programs.map(p => ({
             channelId: p.channelId,
@@ -364,7 +379,9 @@ router.get('/epg/:sourceId', async (req, res) => {
         `).all(sourceId);
 
         if (storedChannels.length > 0) {
-            epgChannels = storedChannels;
+            epgChannels = contentFilter.isEnabled()
+                ? storedChannels.filter(c => !contentFilter.isAdultItemName(c.name))
+                : storedChannels;
         } else {
             // Fallback: Build from unique channelIds in programmes (Legacy behavior)
             const uniqueChannelIds = [...new Set(programs.map(p => p.channelId))];
@@ -494,6 +511,9 @@ router.get('/xtream/:sourceId/stream/:streamId/:type?', async (req, res) => {
         const api = xtreamApi.createFromSource(source);
         const { streamId, type = 'live' } = req.params;
         const { container = 'm3u8' } = req.query;
+        if (contentFilter.isAdultStoredItem(getDb(), source.id, streamId)) {
+            return res.status(404).json({ error: 'Not found' });
+        }
 
         const url = api.buildStreamUrl(streamId, type, container);
         res.json({ url });

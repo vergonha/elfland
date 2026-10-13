@@ -223,6 +223,9 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, async () => {
     console.log(`NodeCast TV server running on http://localhost:${server.address().port}`);
 
+    // Prime the adult content filter flag from stored settings
+    await require('./services/contentFilter').refresh();
+
     // Load plugins
     await loadPlugins().catch(err => {
         console.error('Plugin initialization failed:', err);

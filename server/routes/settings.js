@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { settings, getDefaultSettings } = require('../db');
 const syncService = require('../services/syncService');
+const contentFilter = require('../services/contentFilter');
 
 /**
  * Get all settings
@@ -23,7 +24,9 @@ router.get('/', async (req, res) => {
  */
 router.put('/', async (req, res) => {
     try {
-        const updates = req.body;
+        // The adult filter has its own endpoint so a stale client copy of the
+        // settings can never flip it as a side effect of saving something else.
+        const { blockAdultContent, ...updates } = req.body || {};
         const updatedSettings = await settings.update(updates);
 
         // If sync interval changed, restart the server-side sync timer
@@ -39,12 +42,32 @@ router.put('/', async (req, res) => {
 });
 
 /**
+ * Enable or disable the adult content filter (admin only, see index.js)
+ * PUT /api/settings/content-filter
+ * Body: { enabled: boolean }
+ */
+router.put('/content-filter', async (req, res) => {
+    try {
+        if (typeof req.body?.enabled !== 'boolean') {
+            return res.status(400).json({ error: 'enabled must be a boolean' });
+        }
+        await settings.update({ blockAdultContent: req.body.enabled });
+        await contentFilter.refresh();
+        res.json({ enabled: contentFilter.isEnabled() });
+    } catch (err) {
+        console.error('Error updating content filter:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
  * Reset settings to defaults
  * DELETE /api/settings
  */
 router.delete('/', async (req, res) => {
     try {
         const defaultSettings = await settings.reset();
+        await contentFilter.refresh();
         res.json(defaultSettings);
     } catch (err) {
         console.error('Error resetting settings:', err);
