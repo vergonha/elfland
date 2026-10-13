@@ -3,29 +3,31 @@
 :root {
   --ios-ui-bottom: 0px;
 
-  --color-bg-primary: #18181b;
-  --color-bg-secondary: #27272a;
-  --color-bg-tertiary: #27272a;
-  --color-bg-hover: #3f3f46;
-  --color-bg-active: #52525b;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #a1a1aa;
-  --color-text-muted: #71717a;
+  --color-bg-primary: #181818;
+  --color-bg-secondary: #1f1f1f;
+  --color-bg-tertiary: #1f1f1f;
+  --color-bg-hover: #262626;
+  --color-bg-active: #404040;
 
-  --color-border: #3f3f46;
-  --color-border-light: #52525b;
+  --color-text-primary: #f5f5f5;
+  --color-text-secondary: #8e8e8e;
+  --color-text-muted: #525252;
 
-  --color-accent: #a1a1aa;
-  --color-accent-hover: #d4d4d8;
-  --color-accent-dim: rgba(161, 161, 170, 0.15);
+  --color-border: #262626;
+  --color-border-light: #525252;
+
+  --color-accent: #a3a3a3;
+  --color-accent-hover: #d4d4d4;
+  --color-accent-dim: rgba(163, 163, 163, 0.15);
 
   --color-success: #22c55e;
   --color-warning: #eab308;
   --color-error: #ef4444;
 
-  --glass-bg: #27272a;
-  --glass-border: #3f3f46;
+  --glass-bg: #1f1f1f;
+  --glass-border: #262626;
 
   --space-xs: 4px;
   --space-sm: 8px;
@@ -35,8 +37,8 @@
   --space-2xl: 48px;
 
   --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-md: 4px;
+  --radius-lg: 4px;
   --radius-full: 9999px;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -69,11 +71,11 @@
 html,
 body {
   height: 100%;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-mono);
   font-size: 14px;
   line-height: 1.5;
   color: var(--color-text-secondary);
-  /* zinc-400 for body */
+  /* kogane #8e8e8e for body */
   background: var(--color-bg-primary);
   overflow: hidden;
   overscroll-behavior: none;
@@ -114,6 +116,11 @@ body {
     -webkit-user-select: text;
     user-select: text;
   }
+}
+
+::selection {
+  background: #404040;
+  color: #ffffff;
 }
 
 #app {
@@ -194,7 +201,7 @@ h4 {
 }
 
 .brand-text {
-  font-family: 'Century Gothic', sans-serif;
+  font-family: var(--font-mono);
   font-size: 1.5rem;
   font-weight: 500;
   letter-spacing: -0.03em;
@@ -4540,7 +4547,7 @@ kbd {
 }
 
 .section-header h2 {
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--font-mono);
   font-size: 1.5rem;
   color: var(--color-text-bright);
 }
