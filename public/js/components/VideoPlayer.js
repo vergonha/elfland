@@ -427,7 +427,11 @@ class VideoPlayer {
         } else {
             const element = this.container;
             if (element.requestFullscreen) {
-                element.requestFullscreen().catch(err => console.error('Fullscreen error:', err));
+                element.requestFullscreen().catch(err => {
+                    console.error('Fullscreen error:', err);
+                    // Some mobile browsers reject container fullscreen; fall back to the native video player
+                    if (this.video.webkitEnterFullscreen) this.video.webkitEnterFullscreen();
+                });
             } else if (element.webkitRequestFullscreen) {
                 element.webkitRequestFullscreen();
             } else if (this.video.webkitEnterFullscreen) {
@@ -489,7 +493,7 @@ class VideoPlayer {
                     const originalText = btn.textContent;
                     btn.textContent = '✓ Copied!';
                     setTimeout(() => {
-                        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="icon"><path d="M8 6h12v2H8zM4 2h12v2H4zm2 6h2v12H6zM2 4h2v12H2zm6 16h12v2H8zM20 8h2v12h-2zm-4-4h2v2h-2zM4 16h2v2H4z"/></svg> Copy Stream URL`;
+                        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="currentColor" class="icon"><path d="M28,10V28H10V10H28m0-2H10a2,2,0,0,0-2,2V28a2,2,0,0,0,2,2H28a2,2,0,0,0,2-2V10a2,2,0,0,0-2-2Z"/><path d="M4,18H2V4A2,2,0,0,1,4,2H18V4H4Z"/></svg> Copy Stream URL`;
                     }, 1500);
                 }
                 console.log('[Player] Stream URL copied:', streamUrl);
@@ -1552,17 +1556,6 @@ class VideoPlayer {
 
         const nextIdx = currentIdx >= channels.length - 1 ? 0 : currentIdx + 1;
         window.app.channelList.selectChannel({ channelId: channels[nextIdx].id });
-    }
-
-    /**
-     * Toggle fullscreen
-     */
-    toggleFullscreen() {
-        if (document.fullscreenElement) {
-            document.exitFullscreen();
-        } else if (this.container) {
-            this.container.requestFullscreen();
-        }
     }
 }
 

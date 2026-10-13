@@ -3246,7 +3246,7 @@ kbd {
   color: var(--color-text-muted);
 }
 
-/* Icons (pixelarticons, inline SVG) */
+/* Icons (Carbon, inline SVG) */
 .icon {
   width: 1.25em;
   height: 1.25em;
@@ -3254,7 +3254,6 @@ kbd {
   vertical-align: middle;
   fill: currentColor;
   flex-shrink: 0;
-  shape-rendering: crispEdges;
 }
 
 .nav-link .icon {
