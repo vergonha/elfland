@@ -37,7 +37,7 @@ class HomePage {
                     </div>
                     <div class="scroll-wrapper">
                         <button class="scroll-arrow scroll-left" aria-label="Scroll left">
-                            <span class="icon" aria-hidden="true">&lt;</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg>
                         </button>
                         <div class="horizontal-scroll channel-tiles" id="favorite-channels-list">
                             <div class="loading-state">
@@ -46,7 +46,7 @@ class HomePage {
                             </div>
                         </div>
                         <button class="scroll-arrow scroll-right" aria-label="Scroll right">
-                            <span class="icon" aria-hidden="true">&gt;</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg>
                         </button>
                     </div>
                 </section>
@@ -57,7 +57,7 @@ class HomePage {
                     </div>
                     <div class="scroll-wrapper">
                         <button class="scroll-arrow scroll-left" aria-label="Scroll left">
-                            <span class="icon" aria-hidden="true">&lt;</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg>
                         </button>
                         <div class="horizontal-scroll" id="continue-watching-list">
                             <div class="loading-state">
@@ -66,7 +66,7 @@ class HomePage {
                             </div>
                         </div>
                         <button class="scroll-arrow scroll-right" aria-label="Scroll right">
-                            <span class="icon" aria-hidden="true">&gt;</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg>
                         </button>
                     </div>
                 </section>
@@ -77,7 +77,7 @@ class HomePage {
                     </div>
                     <div class="scroll-wrapper">
                         <button class="scroll-arrow scroll-left" aria-label="Scroll left">
-                            <span class="icon" aria-hidden="true">&lt;</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg>
                         </button>
                         <div class="horizontal-scroll" id="recent-movies-list">
                             <div class="loading-state">
@@ -86,7 +86,7 @@ class HomePage {
                             </div>
                         </div>
                         <button class="scroll-arrow scroll-right" aria-label="Scroll right">
-                            <span class="icon" aria-hidden="true">&gt;</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg>
                         </button>
                     </div>
                 </section>
@@ -97,7 +97,7 @@ class HomePage {
                     </div>
                     <div class="scroll-wrapper">
                         <button class="scroll-arrow scroll-left" aria-label="Scroll left">
-                            <span class="icon" aria-hidden="true">&lt;</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg>
                         </button>
                         <div class="horizontal-scroll" id="recent-series-list">
                             <div class="loading-state">
@@ -106,7 +106,7 @@ class HomePage {
                             </div>
                         </div>
                         <button class="scroll-arrow scroll-right" aria-label="Scroll right">
-                            <span class="icon" aria-hidden="true">&gt;</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg>
                         </button>
                     </div>
                 </section>
@@ -422,7 +422,7 @@ class HomePage {
                         <div class="progress-bar" style="width: ${percent}%"></div>
                     </div>
                     <div class="play-icon-overlay">
-                        <span class="icon" aria-hidden="true">&gt;</span>
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 11h-2V9h2zm0 4h-2v-2h2zm-2 2h-2v-2h2zm0-8h-2V7h2zm-2-2H9V5h2zM9 21H7V3h2zm6-8h2v-2h-2zm-6 4h2v2H9z"/></svg>
                     </div>
                 </div>
                 <div class="card-info">
@@ -444,7 +444,7 @@ class HomePage {
                 <div class="card-image">
                     <img src="${posterUrl}" alt="${item.name}" loading="lazy" onerror="this.onerror=null;this.src='/img/poster-placeholder.jpg'">
                     <div class="play-icon-overlay">
-                        <span class="icon" aria-hidden="true">&gt;</span>
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 11h-2V9h2zm0 4h-2v-2h2zm-2 2h-2v-2h2zm0-8h-2V7h2zm-2-2H9V5h2zM9 21H7V3h2zm6-8h2v-2h-2zm-6 4h2v2H9z"/></svg>
                     </div>
                 </div>
                 <div class="card-info">

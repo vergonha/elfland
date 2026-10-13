@@ -196,8 +196,8 @@ h4 {
   justify-content: center;
 }
 
-.logo .icon {
-  color: var(--color-accent);
+.logo svg {
+  fill: var(--color-accent);
 }
 
 .brand-text {
@@ -457,7 +457,6 @@ h4 {
 .sidebar-expand-btn .icon {
   width: 20px;
   height: 20px;
-  font-size: 14px;
 }
 
 /* Show expand button when sidebar is collapsed */
@@ -814,7 +813,6 @@ h4 {
 .video-control-btn .icon {
   width: 24px;
   height: 24px;
-  font-size: 17px;
 }
 
 .video-control-btn.muted .icon {
@@ -836,8 +834,7 @@ h4 {
   .video-control-btn .icon {
     width: 28px;
     height: 28px;
-  font-size: 20px;
-}
+  }
 }
 
 /* Touch devices */
@@ -3249,20 +3246,15 @@ kbd {
   color: var(--color-text-muted);
 }
 
-/* Icons (ASCII glyphs) */
+/* Icons (pixelarticons, inline SVG) */
 .icon {
-  min-width: 1.25em;
+  width: 1.25em;
   height: 1.25em;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
   vertical-align: middle;
-  font-family: var(--font-mono);
-  font-style: normal;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-  user-select: none;
+  fill: currentColor;
+  flex-shrink: 0;
+  shape-rendering: crispEdges;
 }
 
 .nav-link .icon {
@@ -3475,7 +3467,6 @@ kbd {
 .watch-back-btn .icon {
   width: 24px;
   height: 24px;
-  font-size: 17px;
 }
 
 .watch-title-info {
@@ -3534,7 +3525,6 @@ kbd {
 .watch-center-play .icon {
   width: 40px;
   height: 40px;
-  font-size: 28px;
 }
 
 /* Loading Spinner */
@@ -3653,7 +3643,6 @@ kbd {
 .watch-btn .icon {
   width: 24px;
   height: 24px;
-  font-size: 17px;
 }
 
 /* Captions Menu */
@@ -3732,7 +3721,6 @@ kbd {
 .watch-btn-lg .icon {
   width: 32px;
   height: 32px;
-  font-size: 22px;
 }
 
 .skip-label {
@@ -3786,7 +3774,6 @@ kbd {
 .watch-scroll-hint .icon {
   width: 20px;
   height: 20px;
-  font-size: 14px;
 }
 
 @keyframes bounce {
@@ -3937,7 +3924,6 @@ kbd {
 .watch-actions .btn .icon {
   width: 18px;
   height: 18px;
-  font-size: 13px;
 }
 
 .watch-actions .btn .icon-fav-filled {
@@ -4010,7 +3996,6 @@ kbd {
   height: 20px;
   color: var(--color-text-muted);
   transition: transform var(--transition-fast);
-  font-size: 14px;
 }
 
 .watch-season-header.collapsed .icon {
@@ -4174,7 +4159,6 @@ kbd {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  font-size: 13px;
 }
 
 /* Hardware Info Grid (Transcoding Tab) */
@@ -4600,10 +4584,10 @@ kbd {
   transform: translateY(-50%) scale(1.1);
 }
 
-.scroll-arrow .icon {
-  min-width: 24px;
+.scroll-arrow svg {
+  width: 24px;
   height: 24px;
-  font-size: 18px;
+  fill: currentColor;
 }
 
 .scroll-arrow.scroll-left {
@@ -4726,12 +4710,12 @@ kbd {
   transition: opacity var(--transition-fast);
 }
 
-.play-icon-overlay .icon {
-  min-width: 48px;
+.play-icon-overlay svg {
+  width: 48px;
   height: 48px;
-  font-size: 32px;
   color: white;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  fill: currentColor;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
 }
 
 .dashboard-card:hover .play-icon-overlay {
