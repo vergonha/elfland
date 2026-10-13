@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - NodeCast TV</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <title>꒰ঌ ໒꒱ burzum tv player</title>
+    <link rel="icon" href="https://irowiki.org/w/images/2/26/Poisonous_Weapon.png">
     <link rel="stylesheet" href="css/main.css">
     <style>
         html,
@@ -27,12 +27,12 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: var(--space-xl);
+            gap: var(--space-lg);
         }
 
         .login-art {
-            -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
-            mask-image: linear-gradient(to bottom, #000, transparent);
+            -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent);
+            mask-image: linear-gradient(to bottom, #000 30%, transparent);
             max-width: 100%;
             overflow-x: auto;
         }
@@ -42,38 +42,70 @@
             min-width: max-content;
             white-space: pre;
             letter-spacing: 0;
-            font-size: 15px;
-            color: var(--color-text-primary);
+            font-size: 11px;
+            line-height: 1.1;
+            color: var(--color-text-secondary);
             user-select: none;
+        }
+
+        .login-title {
+            text-align: center;
+            font-size: 14px;
+            font-weight: 400;
+            color: var(--color-text-primary);
+        }
+
+        .login-title small {
+            display: block;
+            margin-top: var(--space-xs);
+            font-size: 12px;
+            color: var(--color-text-muted);
+        }
+
+        .cursor {
+            animation: blink 1.1s steps(1) infinite;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0;
+            }
         }
 
         .login-form {
             width: 100%;
-            max-width: 384px;
+            max-width: 320px;
             display: flex;
             flex-direction: column;
             gap: var(--space-md);
+            padding-top: var(--space-md);
+            border-top: 1px dashed var(--color-border);
         }
 
         .form-row {
             display: flex;
-            align-items: center;
-            gap: var(--space-md);
+            align-items: baseline;
+            gap: var(--space-sm);
         }
 
         .form-row label {
-            width: 64px;
-            text-align: right;
-            color: var(--color-accent);
+            color: var(--color-text-muted);
+            white-space: nowrap;
+            transition: color 0.15s;
+        }
+
+        .form-row:focus-within label {
+            color: var(--color-text-primary);
         }
 
         .form-row input {
             flex: 1;
             min-width: 0;
-            padding: 6px 12px;
-            background: rgba(38, 38, 38, 0.5);
-            border: 1px solid var(--color-border);
-            border-radius: var(--radius-sm);
+            padding: 2px 0;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--color-border);
+            border-radius: 0;
             color: var(--color-accent-hover);
             font-family: var(--font-mono);
             font-size: 14px;
@@ -82,7 +114,7 @@
 
         .form-row input:focus {
             outline: none;
-            border-color: var(--color-border-light);
+            border-bottom-color: var(--color-accent);
         }
 
         .form-row input::placeholder {
@@ -91,8 +123,7 @@
 
         .login-actions {
             display: flex;
-            justify-content: center;
-            gap: var(--space-lg);
+            justify-content: space-between;
             margin-top: var(--space-sm);
         }
 
@@ -102,13 +133,23 @@
             padding: 0;
             font-family: var(--font-mono);
             font-size: 14px;
-            color: var(--color-text-muted);
+            color: var(--color-text-secondary);
             cursor: pointer;
             transition: color 0.15s;
         }
 
+        .login-actions button::before {
+            content: '[ ';
+            color: var(--color-text-muted);
+        }
+
+        .login-actions button::after {
+            content: ' ]';
+            color: var(--color-text-muted);
+        }
+
         .login-actions button:hover:not(:disabled) {
-            color: var(--color-accent-hover);
+            color: var(--color-text-primary);
         }
 
         .login-actions button:disabled {
@@ -119,8 +160,15 @@
         .error-message,
         .setup-message {
             display: none;
-            text-align: center;
             font-size: 12px;
+        }
+
+        .error-message::before {
+            content: '! ';
+        }
+
+        .setup-message::before {
+            content: '# ';
         }
 
         .error-message {
@@ -138,13 +186,14 @@
 
         .login-footer {
             display: flex;
+            flex-wrap: wrap;
             justify-content: center;
+            gap: var(--space-sm);
             font-size: 12px;
             color: var(--color-text-muted);
         }
 
         .login-footer span {
-            text-align: center;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -157,30 +206,50 @@
     <main class="login-main">
         <div class="login-art">
             <pre>
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⣄⠀⠀⠀⣦⣤⣾⣿⠿⠛⣋⣥⣤⣀⠀⠀⠀⠀
-⠀⠀⠀⠀⡤⡀⢈⢻⣬⣿⠟⢁⣤⣶⣿⣿⡿⠿⠿⠛⠛⢀⣄⠀
-⠀⠀⢢⣘⣿⣿⣶⣿⣯⣤⣾⣿⣿⣿⠟⠁⠄⠀⣾⡇⣼⢻⣿⣾
-⣰⠞⠛⢉⣩⣿⣿⣿⣿⣿⣿⣿⣿⠋⣼⣧⣤⣴⠟⣠⣿⢰⣿⣿
-⣶⡾⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣈⣩⣤⡶⠟⢛⣩⣴⣿⣿⡟
-⣠⣄⠈⠀⣰⡦⠙⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣟⡛⠛⠛⠁
-⣉⠛⠛⠛⣁⡔⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠥⠀⠀
-⣭⣏⣭⣭⣥⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⢠
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣤⣤⣤⣤⣤⣤⣤⣄⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠛⠻⠿⢿⣿⣿⣿⣿⣿⣶⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⣿⣿⣿⣿⣿⣿⣶⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣷⣤⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢿⣿⣿⣿⣿⣿⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⣀⣀⣀⣙⢿⣿⣿⣿⣿⣿⣿⣦⡀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣶⣶⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠻⣿⣿⣿⣿⣿⣿⣿⣄⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠇⠀⠀⢹⣿⣿⣿⣿⣿⣿⣿⣆⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⡟⠹⠿⠟⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡏⠀⠀⠀⠀⢿⣿⣿⣿⣿⣿⣿⣿⡆⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡿⠋⡬⢿⣿⣷⣤⣤⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⠀⠀⠀⠀⠀⠸⣿⣿⣿⣿⣿⣿⣿⣿⡀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠰⡇⢸⡇⢸⣿⣿⣿⠟⠁⢀⣬⢽⣿⣿⣿⣿⣿⣿⠋⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣧⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣧⣈⣛⣿⣿⣿⡇⠀⠀⣾⠁⢀⢻⣿⣿⣿⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⡀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢹⣿⣿⣿⣿⣿⣿⣧⣄⣀⠙⠷⢋⣼⣿⣿⣿⡟⠀⠀⠀⠀⠀⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇
+⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣿⣿⣿⣿⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇
+⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠁
+⣿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⡀⠀⠀⠀⠀⠀⠀⢀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠀
+⠸⣿⣿⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢰⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⡀⠀⠀⠀⢀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠃⠀
+⠀⢹⣿⣿⣧⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠏⠀⠀
+⠀⠀⠹⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠏⠀⠀⠀
+⠀⠀⠀⠙⣿⣿⣿⣿⣿⣶⣤⣀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠋⠀⠀⠀⠀
+⠀⠀⠀⠀⠈⠻⣿⣿⣿⣿⣿⣿⣿⣷⣶⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⠁⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠉⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⠁⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠈⠛⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠿⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠉⠛⠛⠛⠛⠛⠛⠛⠋⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 </pre>
         </div>
 
+        <h1 class="login-title">
+            burzum<span class="cursor">_</span>
+            <small id="login-subtitle">tv player :: sign in</small>
+        </h1>
+
         <form class="login-form" id="login-form">
             <p class="error-message" id="error-message"></p>
-            <p class="setup-message" id="setup-message">no accounts yet, create the admin account</p>
+            <p class="setup-message" id="setup-message">no accounts yet. create the admin account.</p>
 
             <div class="form-row">
-                <label for="username">user</label>
+                <label for="username">user &gt;</label>
                 <input type="text" id="username" name="username" required autocomplete="username"
                     placeholder="john doe">
             </div>
 
             <div class="form-row">
-                <label for="password">passwd</label>
+                <label for="password">pass &gt;</label>
                 <input type="password" id="password" name="password" required autocomplete="current-password"
                     minlength="6" placeholder="*******">
             </div>
@@ -193,6 +262,8 @@
     </main>
 
     <footer class="login-footer">
+        <span>press enter to continue</span>
+        <span>|</span>
         <span id="user-agent"></span>
     </footer>
 
@@ -224,6 +295,7 @@
                 if (data.setupRequired) {
                     isSetupMode = true;
                     document.getElementById('submit-btn').textContent = 'create account';
+                    document.getElementById('login-subtitle').textContent = 'tv player :: first run';
                     document.getElementById('setup-message').classList.add('show');
                     document.getElementById('password').placeholder = 'min 6 chars';
                     // Hide SSO in setup mode
