@@ -105,6 +105,23 @@ function initSchema() {
         );
     `);
 
+    // Channel health (written by services/channelHealth.js)
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS channel_health (
+            source_id INTEGER NOT NULL,
+            item_id TEXT NOT NULL,
+            status TEXT NOT NULL, -- 'online', 'offline'
+            latency_ms INTEGER,
+            error TEXT,
+            fail_count INTEGER DEFAULT 0,
+            checked_at INTEGER NOT NULL,
+            auto_hidden INTEGER DEFAULT 0, -- hidden by the monitor, not by an admin
+            debug TEXT, -- JSON trace of the attempts, kept for failures and retried checks
+            PRIMARY KEY (source_id, item_id)
+        );
+    `);
+    try { db.exec('ALTER TABLE channel_health ADD COLUMN debug TEXT'); } catch (e) { /* column already exists */ }
+
     // User Favorites (per-user)
     db.exec(`
         CREATE TABLE IF NOT EXISTS favorites (

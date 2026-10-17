@@ -201,6 +201,7 @@ app.use(['/api/remux', '/api/probe', '/api/subtitle'], mediaLimit);
 app.use('/api/sources', require('./routes/sources'));
 app.use('/api/proxy', require('./routes/proxy'));
 app.use('/api/channels', require('./routes/channels'));
+app.use('/api/channel-health', auth.requireAdmin, require('./routes/channelHealth'));
 app.use('/api/favorites', require('./routes/favorites'));
 app.use('/api/transcode', require('./routes/transcode'));
 app.use('/api/remux', require('./routes/remux'));
@@ -238,6 +239,7 @@ const server = app.listen(PORT, async () => {
         await syncService.syncAll().catch(console.error);
         // Start the server-side sync timer after initial sync
         await syncService.startSyncTimer().catch(console.error);
+        require('./services/channelHealth').start();
 
         // Detect hardware acceleration capabilities
         try {

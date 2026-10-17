@@ -21,6 +21,7 @@ class App {
         this.pages.movies = new MoviesPage(this);
         this.pages.series = new SeriesPage(this);
         this.pages.settings = new SettingsPage(this);
+        this.pages.health = new HealthPage(this);
         this.pages.watch = new WatchPage(this);
 
         this.init();
@@ -193,6 +194,10 @@ class App {
                 if (settingsLink) {
                     settingsLink.style.display = 'none';
                 }
+            }
+
+            if (this.currentUser.role === 'admin') {
+                document.getElementById('health-nav').style.display = '';
             }
 
             // Add logout button to navbar

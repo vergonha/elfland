@@ -5218,3 +5218,11 @@ option,
 textarea {
   text-transform: lowercase;
 }
+
+/* Channel health */
+.health-table { width: 100%; margin-top: var(--space-md); border-collapse: collapse; }
+.health-table th, .health-table td { text-align: left; padding: var(--space-xs) var(--space-sm); }
+.health-online { color: #4caf50; }
+.health-offline { color: #f44336; }
+#health-stats { white-space: pre-line; }
+.health-debug { margin-top: var(--space-md); padding: var(--space-sm); max-height: 400px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; }

@@ -95,10 +95,11 @@ function registerSqlFunctions(db) {
 
 /**
  * SQL fragment that excludes adult playlist items. `alias` is the
- * playlist_items table alias. Returns '' when the filter is off.
+ * playlist_items table alias. Returns '' when the filter is off, unless
+ * `force` is set.
  */
-function itemClause(alias = 'playlist_items') {
-    if (!enabled) return '';
+function itemClause(alias = 'playlist_items', force = false) {
+    if (!enabled && !force) return '';
     return ` AND is_adult_item(${alias}.name) = 0
         AND NOT EXISTS (
             SELECT 1 FROM categories adult_c

@@ -148,6 +148,12 @@ const API = {
     },
 
     // Settings
+    channelHealth: {
+        get: () => API.request('GET', '/channel-health'),
+        run: () => API.request('POST', '/channel-health/run'),
+        diagnose: (sourceId, itemId) => API.request('POST', '/channel-health/diagnose', { sourceId, itemId })
+    },
+
     settings: {
         get: () => API.request('GET', '/settings'),
         update: (data) => API.request('PUT', '/settings', data),
