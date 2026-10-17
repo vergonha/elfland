@@ -151,7 +151,10 @@ const API = {
     channelHealth: {
         get: () => API.request('GET', '/channel-health'),
         run: () => API.request('POST', '/channel-health/run'),
-        diagnose: (sourceId, itemId) => API.request('POST', '/channel-health/diagnose', { sourceId, itemId })
+        diagnose: (type, sourceId, itemId, seriesId) => API.request('POST', '/channel-health/diagnose', { type, sourceId, itemId, seriesId }),
+        searchSeries: (q) => API.request('GET', `/channel-health/series?q=${encodeURIComponent(q)}`),
+        seriesEpisodes: (sourceId, seriesId) => API.request('GET', `/channel-health/series/${sourceId}/${encodeURIComponent(seriesId)}`),
+        searchMovies: (q) => API.request('GET', `/channel-health/movies?q=${encodeURIComponent(q)}`)
     },
 
     settings: {

@@ -121,6 +121,12 @@ function initSchema() {
         );
     `);
     try { db.exec('ALTER TABLE channel_health ADD COLUMN debug TEXT'); } catch (e) { /* column already exists */ }
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS health_meta (
+            key TEXT PRIMARY KEY, -- 'lastRun', 'nextRun', 'summary'
+            value TEXT NOT NULL -- JSON
+        );
+    `);
 
     // User Favorites (per-user)
     db.exec(`

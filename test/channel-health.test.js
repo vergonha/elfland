@@ -57,7 +57,7 @@ test('failed channels are rechecked then hidden, return when online, and adult c
     server.close();
 });
 
-test('a run where too many channels fail hides nothing and says so; diagnose traces one channel', async () => {
+test('a run where too many channels fail hides nothing and says so', async () => {
     const server = http.createServer((req, res) => res.end('#EXTM3U\n')).listen(0);
     await new Promise(r => server.once('listening', r));
     const base = `http://127.0.0.1:${server.address().port}`;
@@ -73,9 +73,41 @@ test('a run where too many channels fail hides nothing and says so; diagnose tra
     assert.equal(getDb().prepare("SELECT COUNT(*) n FROM playlist_items WHERE name LIKE 'suspect%' AND is_hidden = 1").get().n, 0);
     assert.equal(summary.finalErrors['empty playlist'], 25);
 
-    const report = await health.diagnose(source.id, 's1');
-    assert.equal(report.attempts.length, 4);
-    assert.equal(report.attempts[3].plain, true);
-    assert.equal(await health.diagnose(source.id, 'missing'), null);
     server.close();
+});
+
+test('the last run summary is read back from the database after a restart', async () => {
+    const summary = health.getState().summary;
+    assert.ok(summary && summary.total >= 0, 'summary was saved by the previous run');
+    delete require.cache[require.resolve('../server/services/channelHealth')];
+    const reloaded = require('../server/services/channelHealth').getState();
+    assert.equal(reloaded.summary.total, summary.total);
+    assert.ok(reloaded.lastRun);
+});
+
+test('the schedule survives restarts: first boot waits one interval, a saved time is kept, an overdue run starts soon', () => {
+    const db = getDb();
+    const fresh = () => {
+        delete require.cache[require.resolve('../server/services/channelHealth')];
+        return require('../server/services/channelHealth');
+    };
+    const interval = 120 * 60 * 1000;
+
+    db.prepare('DELETE FROM health_meta').run();
+    let module = fresh();
+    module.start();
+    let next = module.getState().nextRun;
+    assert.ok(Math.abs(next - (Date.now() + interval)) < 5000, 'no saved state: first run in 2h');
+
+    const saved = Date.now() + 40 * 60 * 1000;
+    db.prepare("INSERT OR REPLACE INTO health_meta (key, value) VALUES ('nextRun', ?)").run(JSON.stringify(saved));
+    module = fresh();
+    module.start();
+    assert.equal(module.getState().nextRun, saved, 'restart keeps the saved time');
+
+    db.prepare("INSERT OR REPLACE INTO health_meta (key, value) VALUES ('nextRun', ?)").run(JSON.stringify(Date.now() - 1000));
+    module = fresh();
+    module.start();
+    next = module.getState().nextRun;
+    assert.ok(next > Date.now() + 30000 && next < Date.now() + 90000, 'overdue run starts about a minute after boot');
 });

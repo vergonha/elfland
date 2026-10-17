@@ -14,34 +14,87 @@
  *
  * Every failure (and every channel that needed a retry) keeps a per-attempt
  * trace in channel_health.debug so a wrong verdict can be diagnosed later.
+ *
+ * The schedule and the last run summary live in the database (health_meta), so
+ * restarting the server neither loses them nor starts a run: the next run is
+ * always INTERVAL_MIN after the end of the previous one.
  */
 const { getDb } = require('../db/sqlite');
 const { sources } = require('../db');
 const { validateHttpUrl } = require('./urlSecurity');
 const contentFilter = require('./contentFilter');
-const xtreamApi = require('./xtreamApi');
 
 const INTERVAL_MIN = parseInt(process.env.CHANNEL_CHECK_INTERVAL_MIN) || 120;
 // Providers cap simultaneous connections per account, so checks are throttled per source.
 const TIMEOUT_MS = 20000;
 const PER_SOURCE_CONCURRENCY = 2;
 const RETRY_DELAY_MS = 2000;
+const CATCH_UP_MS = 60 * 1000; // a run that came due while the server was down starts this long after boot
 const MAX_HOPS = 6;
 const SUSPECT_RATE = 0.15;
 const SUSPECT_MIN_SAMPLE = 20;
 
-const state = { running: false, lastRun: null, checked: 0, total: 0, phase: null, summary: null };
+const state = { running: false, lastRun: null, nextRun: null, checked: 0, total: 0, phase: null, summary: null };
 let timer = null;
+let metaLoaded = false;
 
 const KEPT_HEADERS = ['server', 'via', 'retry-after', 'cf-ray', 'x-powered-by', 'content-type', 'content-length'];
 
 // Stored traces must never carry the account's credentials.
 const redact = text => String(text ?? '').replace(/\/(live|movie|series)\/[^/\s"']+\/[^/\s"']+\//g, '/$1/<user>/<pass>/');
 
-// One fetch of the playlist, following redirects by hand so each hop is timed
-// and validated. Returns the verdict plus a trace of what happened.
+const monitorHeaders = url => {
+    const origin = new URL(url).origin;
+    return {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: '*/*', 'Accept-Encoding': 'identity', Origin: origin, Referer: `${origin}/`
+    };
+};
+
+// Follows redirects by hand so every hop is timed and validated. `hops` is filled in as it goes,
+// so the caller still has the trace when a later hop throws.
+async function followHops(url, { headers, signal, hops }) {
+    let current = validateHttpUrl(url);
+    for (let i = 0; ; i++) {
+        const hop = { host: new URL(current).host };
+        hops.push(hop);
+        const t0 = Date.now();
+        let res;
+        try { res = await fetch(current, { headers, signal, redirect: 'manual' }); }
+        finally { hop.ms = Date.now() - t0; }
+        hop.status = res.status;
+        const location = res.headers.get('location');
+        if (res.status < 300 || res.status >= 400 || !location) return { res, url: current };
+        await res.body?.cancel();
+        if (i + 1 >= MAX_HOPS) throw new Error('too many redirects');
+        current = validateHttpUrl(new URL(location, current).href);
+    }
+}
+
+// Reads at most maxBytes or for maxMs; `complete` tells whether the body ended on its own.
+// A read that fails after some data arrived still returns what it got.
+async function readBody(res, maxBytes, { maxMs = Infinity } = {}) {
+    const started = Date.now();
+    const chunks = [];
+    let bytes = 0, complete = true;
+    try {
+        for await (const chunk of res.body || []) {
+            chunks.push(Buffer.from(chunk));
+            bytes += chunk.length;
+            if (bytes >= maxBytes || Date.now() - started >= maxMs) { complete = false; break; } // leaving the loop cancels the stream
+        }
+    } catch (err) {
+        if (!bytes) throw err;
+        complete = false;
+    }
+    return { buffer: Buffer.concat(chunks), bytes, complete, ms: Date.now() - started };
+}
+
+const pickHeaders = res => Object.fromEntries(KEPT_HEADERS.filter(h => res.headers.has(h)).map(h => [h, res.headers.get(h)]));
+
+// One fetch of the playlist and its verdict, plus a trace of what happened.
 // shortcut: a master playlist counts as online without fetching its variants, upgrade if variants die alone
-async function checkUrlOnce(url, { plain = false } = {}) {
+async function checkUrlOnce(url, { plain = false, keepBody = false, timeoutMs = TIMEOUT_MS } = {}) {
     const started = Date.now();
     const attempt = { plain, hops: [] };
     const done = (ok, error, extra = {}) => ({
@@ -49,29 +102,10 @@ async function checkUrlOnce(url, { plain = false } = {}) {
         attempt: { ...attempt, totalMs: Date.now() - started, ...(error && { error }) }
     });
     try {
-        const headers = plain ? {} : (() => {
-            const origin = new URL(url).origin;
-            return {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                Accept: '*/*', 'Accept-Encoding': 'identity', Origin: origin, Referer: `${origin}/`
-            };
-        })();
-        const signal = AbortSignal.timeout(TIMEOUT_MS);
-        let current = validateHttpUrl(url), res;
-        for (let i = 0; ; i++) {
-            const hop = { host: new URL(current).host };
-            attempt.hops.push(hop);
-            const t0 = Date.now();
-            try { res = await fetch(current, { headers, signal, redirect: 'manual' }); }
-            finally { hop.ms = Date.now() - t0; }
-            hop.status = res.status;
-            const location = res.headers.get('location');
-            if (res.status < 300 || res.status >= 400 || !location) break;
-            await res.body?.cancel();
-            if (i + 1 >= MAX_HOPS) return done(false, 'too many redirects');
-            current = validateHttpUrl(new URL(location, current).href);
-        }
-        attempt.headers = Object.fromEntries(KEPT_HEADERS.filter(h => res.headers.has(h)).map(h => [h, res.headers.get(h)]));
+        const { res, url: finalUrl } = await followHops(url, {
+            headers: plain ? {} : monitorHeaders(url), signal: AbortSignal.timeout(timeoutMs), hops: attempt.hops
+        });
+        attempt.headers = pickHeaders(res);
         if (!res.ok) {
             attempt.snippet = redact((await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200));
             return done(false, `http ${res.status}`, { retry: res.status >= 500 });
@@ -82,11 +116,11 @@ async function checkUrlOnce(url, { plain = false } = {}) {
         const latency = Date.now() - started;
         if (!body.trimStart().startsWith('#EXTM3U')) return done(false, 'not a playlist');
         const hasEntries = body.split('\n').some(l => l.trim() && !l.trim().startsWith('#'));
-        return hasEntries ? done(true, null, { latency }) : done(false, 'empty playlist');
+        return hasEntries ? done(true, null, { latency, ...(keepBody && { body, finalUrl }) }) : done(false, 'empty playlist');
     } catch (err) {
         const timeout = err.name === 'TimeoutError';
         attempt.code = err.cause?.code || err.code;
-        return done(false, timeout ? 'timeout' : err.message, { retry: timeout });
+        return done(false, timeout ? 'timeout' : redact(err.message), { retry: timeout });
     }
 }
 
@@ -151,6 +185,7 @@ const count = (list, key) => list.reduce((acc, x) => { acc[key(x)] = (acc[key(x)
 
 async function runOnce() {
     if (state.running) return;
+    ensureMeta();
     state.running = true;
     const started = Date.now();
     try {
@@ -208,6 +243,7 @@ async function runOnce() {
     } finally {
         state.running = false;
         state.phase = null;
+        schedule(Date.now() + INTERVAL_MIN * 60 * 1000);
     }
 }
 
@@ -222,38 +258,39 @@ function list() {
     `).all().map(row => ({ ...row, debug: row.debug ? JSON.parse(row.debug) : null }));
 }
 
-// Live diagnosis of one channel, run on this server so it sees what the monitor sees.
-async function diagnose(sourceId, itemId) {
-    const item = getDb().prepare(`
-        SELECT p.name, p.source_id, p.item_id, p.stream_url FROM playlist_items p
-        WHERE p.source_id = ? AND p.item_id = ? AND p.type = 'live' ${contentFilter.itemClause('p', true)}
-    `).get(sourceId, String(itemId));
-    const source = item && await sources.getById(sourceId);
-    if (!item || !source) return null;
-
-    const url = streamUrl(item, source);
-    const attempts = [];
-    for (let i = 0; i < 3; i++) {
-        if (i) await new Promise(resolve => setTimeout(resolve, 1000));
-        attempts.push((await checkUrlOnce(url)).attempt);
-    }
-    attempts.push((await checkUrlOnce(url, { plain: true })).attempt); // without the monitor's headers
-
-    let account = null;
-    if (source.type === 'xtream') {
-        try {
-            const { user_info: u } = await xtreamApi.createFromSource(source).authenticate();
-            account = { status: u.status, max_connections: u.max_connections, active_cons: u.active_cons, exp_date: u.exp_date };
-        } catch (err) { account = { error: err.message }; }
-    }
-    return { channel: { name: item.name, source_id: item.source_id, item_id: item.item_id }, url: redact(url), account, attempts, at: Date.now() };
+function ensureMeta() {
+    if (metaLoaded) return;
+    metaLoaded = true;
+    try {
+        for (const { key, value } of getDb().prepare('SELECT key, value FROM health_meta').all()) {
+            if (key in state) state[key] = JSON.parse(value);
+        }
+    } catch (err) { console.error('[ChannelHealth] Could not load saved state:', err.message); }
 }
 
-function start() {
-    if (timer) return;
-    timer = setInterval(() => runOnce(), INTERVAL_MIN * 60 * 1000);
+function saveMeta() {
+    const upsert = getDb().prepare('INSERT OR REPLACE INTO health_meta (key, value) VALUES (?, ?)');
+    for (const key of ['lastRun', 'nextRun', 'summary']) upsert.run(key, JSON.stringify(state[key]));
+}
+
+function schedule(at) {
+    clearTimeout(timer);
+    state.nextRun = at;
+    try { saveMeta(); } catch (err) { console.error('[ChannelHealth] Could not save state:', err.message); }
+    timer = setTimeout(() => runOnce(), Math.max(at - Date.now(), 0));
     timer.unref();
-    runOnce();
 }
 
-module.exports = { start, runOnce, list, diagnose, checkUrl, checkUrlOnce, getState: () => ({ ...state, intervalMin: INTERVAL_MIN }) };
+// Keeps the saved schedule across restarts. With no saved schedule (first boot) the first run is INTERVAL_MIN away.
+function start() {
+    ensureMeta();
+    const now = Date.now(), interval = INTERVAL_MIN * 60 * 1000;
+    const saved = state.nextRun;
+    schedule(saved ? (saved < now ? now + CATCH_UP_MS : Math.min(saved, now + interval)) : now + interval);
+}
+
+module.exports = {
+    start, runOnce, list, checkUrl, checkUrlOnce, followHops, readBody, monitorHeaders, pickHeaders,
+    redact, streamUrl, TIMEOUT_MS,
+    getState: () => { ensureMeta(); return { ...state, intervalMin: INTERVAL_MIN }; }
+};

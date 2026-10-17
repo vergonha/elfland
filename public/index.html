@@ -31,7 +31,7 @@
   <link rel="icon" href="https://irowiki.org/w/images/2/26/Poisonous_Weapon.png">
 
   <!-- CSS -->
-  <link rel="stylesheet" href="css/main.css?v=2">
+  <link rel="stylesheet" href="css/main.css?v=4">
 
 
   <!-- HLS.js -->
@@ -351,17 +351,106 @@
 
       <!-- Channel Health Page (Admin Only) -->
       <div id="page-health" class="page">
-        <div class="settings-container">
-          <h2>Channel Health</h2>
-          <p class="hint" id="health-summary"></p>
-          <p class="hint" id="health-stats"></p>
-          <button class="btn btn-sm" id="health-run">Check now</button>
-          <button class="btn btn-sm" id="health-report">Copy debug report</button>
-          <pre class="health-debug hidden" id="health-debug"></pre>
-          <table class="health-table">
-            <thead><tr><th>Channel</th><th>Status</th><th>Response</th><th>Checked</th><th></th></tr></thead>
-            <tbody id="health-rows"></tbody>
-          </table>
+        <div class="settings-container health-page">
+          <h2>Health</h2>
+
+          <div class="health-cards" id="health-cards"></div>
+          <div class="health-banner hidden" id="health-banner"></div>
+
+          <div class="health-run">
+            <div>
+              <div id="health-summary"></div>
+              <div class="hint" id="health-schedule"></div>
+            </div>
+            <div class="health-actions">
+              <button class="btn btn-sm btn-secondary" id="health-run">Check now</button>
+              <button class="btn btn-sm btn-secondary" id="health-report">Copy debug report</button>
+            </div>
+          </div>
+          <div class="health-progress hidden" id="health-progress"><div id="health-progress-bar"></div></div>
+          <details class="health-details" id="health-details"><summary>Last run details</summary><div id="health-stats"></div></details>
+
+          <div class="health-tabs">
+            <button class="health-tab active" data-htab="live">Live channels</button>
+            <button class="health-tab" data-htab="movies">Movies</button>
+            <button class="health-tab" data-htab="series">Series</button>
+          </div>
+
+          <div class="health-panel active" id="hpanel-live">
+            <div class="health-toolbar">
+              <input type="text" class="search-input" id="health-search" placeholder="Search channels...">
+              <div class="health-chips" id="health-chips"></div>
+            </div>
+            <div class="health-table-wrap">
+              <table class="health-table">
+                <thead><tr><th>Channel</th><th>Status</th><th>Response</th><th>Checked</th><th></th></tr></thead>
+                <tbody id="health-rows"></tbody>
+              </table>
+            </div>
+            <p class="hint health-empty hidden" id="health-empty"></p>
+          </div>
+
+          <div class="health-panel" id="hpanel-movies">
+            <div class="health-toolbar">
+              <input type="text" class="search-input" id="health-movie-search" placeholder="Search a movie to check (2+ letters)...">
+            </div>
+            <p class="hint">Movies are not checked automatically. Search one and run a diagnosis: it tests how fast the file starts, how fast it downloads and whether seeking works.</p>
+            <div class="health-table-wrap">
+              <table class="health-table">
+                <thead><tr><th>Movie</th><th>Source</th><th></th></tr></thead>
+                <tbody id="health-movie-rows"></tbody>
+              </table>
+            </div>
+            <p class="hint health-empty hidden" id="health-movie-empty"></p>
+          </div>
+
+          <div class="health-panel" id="hpanel-series">
+            <div id="series-search-view">
+              <div class="health-toolbar">
+                <input type="text" class="search-input" id="health-series-search" placeholder="Search a series to check (2+ letters)...">
+              </div>
+              <p class="hint">Series are not checked automatically. Search one, tick the episodes you want (or a whole season) and run the checklist. Episodes are tested one at a time.</p>
+              <div class="health-table-wrap">
+                <table class="health-table">
+                  <thead><tr><th>Series</th><th>Source</th><th></th></tr></thead>
+                  <tbody id="health-series-rows"></tbody>
+                </table>
+              </div>
+              <p class="hint health-empty hidden" id="health-series-empty"></p>
+            </div>
+
+            <div id="series-checklist-view" class="hidden">
+              <div class="health-toolbar">
+                <button class="btn btn-sm btn-ghost" id="series-back">&larr; back</button>
+                <strong class="series-title" id="series-title"></strong>
+              </div>
+              <div class="health-run">
+                <div class="hint" id="series-progress"></div>
+                <div class="health-actions">
+                  <button class="btn btn-sm btn-secondary" id="series-select-all">Select all</button>
+                  <button class="btn btn-sm btn-secondary" id="series-clear">Clear</button>
+                  <button class="btn btn-sm btn-primary" id="series-run">Test selected</button>
+                  <button class="btn btn-sm btn-secondary hidden" id="series-stop">Stop</button>
+                  <button class="btn btn-sm btn-secondary" id="series-copy">Copy results</button>
+                </div>
+              </div>
+              <div id="series-seasons"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal" id="health-modal">
+          <div class="modal-content health-modal-content">
+            <div class="modal-header">
+              <h3 id="health-modal-title"></h3>
+              <button class="modal-close" id="health-modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body" id="health-modal-body"></div>
+            <div class="modal-footer">
+              <button class="btn btn-sm btn-secondary" id="health-modal-copy">Copy JSON</button>
+              <button class="btn btn-sm btn-ghost" id="health-modal-done">Close</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1036,7 +1125,7 @@
 
   <!-- JavaScript -->
   <script src="/js/icons.js"></script>
-  <script src="/js/api.js?v=auth-4"></script>
+  <script src="/js/api.js?v=auth-5"></script>
   <script src="/js/components/PlaybackSessions.js?v=1"></script>
   <script src="/js/components/VodDuration.js?v=1"></script>
   <script src="/js/components/VideoPlayer.js?v=3"></script>
@@ -1049,7 +1138,7 @@
   <script src="/js/pages/MoviesPage.js?v=4"></script>
   <script src="/js/pages/SeriesPage.js?v=1"></script>
   <script src="/js/pages/Settings.js?v=2"></script>
-  <script src="/js/pages/HealthPage.js?v=5"></script>
+  <script src="/js/pages/HealthPage.js?v=7"></script>
   <script src="/js/pages/WatchPage.js?v=3"></script>
   <script src="/js/app.js?v=6"></script>
 
