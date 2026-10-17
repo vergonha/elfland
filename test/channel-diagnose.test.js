@@ -231,3 +231,26 @@ test('a slow first speed sample is measured again elsewhere and the better one i
         server.close();
     }
 });
+
+test('a Cloudflare block page is reported as a block on this server, not as a broken file', () => {
+    const probe = {
+        status: 403, error: 'http 403', ttfbMs: 346, bytes: 0, buffer: Buffer.alloc(0),
+        hops: [{ host: 'provider.example', ms: 300, status: 302 }, { host: 'cdn.example', ms: 9, status: 403 }],
+        headers: { server: 'cloudflare', 'cf-ray': 'abc-GRU', 'content-type': 'text/html; charset=UTF-8' },
+        snippet: '<!DOCTYPE html> <!--[if lt IE 7]> <html class="no-js ie6 oldie"'
+    };
+    for (const [forceProxy, expected] of [[false, /force proxy is off/], [true, /use this server as a proxy/]]) {
+        const result = diag.analyzeMovie({ probes: [probe], forceProxy });
+        const blocked = result.findings.find(f => f.code === 'cdn_blocked');
+        assert.equal(blocked.level, 'warn');
+        assert.match(blocked.detail, expected);
+        assert.match(blocked.detail, /cdn\.example/);
+        assert.equal(diag.verdictOf(result.findings), 'warn');
+    }
+    // the same status from a plain origin (no Cloudflare) is still a refusal
+    const plain = diag.analyzeMovie({ probes: [{ ...probe, headers: { 'content-type': 'text/html' } }] });
+    assert.ok(codes(plain).includes('refused') && !codes(plain).includes('cdn_blocked'));
+    // and a Cloudflare 404 is still a missing file
+    const missing = diag.analyzeMovie({ probes: [{ ...probe, status: 404, error: 'http 404' }] });
+    assert.ok(codes(missing).includes('not_found'));
+});

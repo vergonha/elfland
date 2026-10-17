@@ -7,7 +7,7 @@
  * "no seeking support"...). Analysis is kept free of I/O so it can be tested.
  */
 const { getDb } = require('../db/sqlite');
-const { sources } = require('../db');
+const { sources, settings } = require('../db');
 const xtreamApi = require('./xtreamApi');
 const cache = require('./cache');
 const contentFilter = require('./contentFilter');
@@ -49,11 +49,22 @@ function verdictOf(findings) {
 // --- shared analysis -------------------------------------------------------
 
 /** Why a single failed attempt failed, in words. */
-function explainFailure(attempt, account) {
+function explainFailure(attempt, account, forceProxy) {
     const error = attempt.error || 'unknown error';
     const host = attempt.hops?.at(-1)?.host || 'the provider';
     const snippet = attempt.snippet ? ` it said: "${attempt.snippet.slice(0, 120)}"` : '';
     const full = account && Number(account.active_cons) >= Number(account.max_connections);
+
+    // A Cloudflare block page: the CDN rejects this server (IP or connection fingerprint), not necessarily the file.
+    const cloudflare = /cloudflare/i.test(attempt.headers?.server || '') || attempt.headers?.['cf-ray'];
+    if (/^http (403|429|503)$/.test(error) && cloudflare && /text\/html/i.test(attempt.headers?.['content-type'] || '')) {
+        const ms = attempt.hops?.at(-1)?.ms;
+        const playback = forceProxy === true ? 'the player is set to use this server as a proxy, so playback is affected too.'
+            : forceProxy === false ? 'the player connects straight from the viewer\'s browser (force proxy is off), which is usually not blocked: use "test in this browser" to confirm.'
+                : 'viewers that connect from their own browser are usually not blocked: use "test in this browser" to confirm.';
+        return finding('warn', 'cdn_blocked', 'the provider\'s CDN blocks requests from this server',
+            `${host} (behind Cloudflare) answered ${error} with a block page${ms != null ? ` in ${ms} ms` : ''}. that means this server's IP or connection is blocked, not that the file is broken. ${playback} it does affect anything this server downloads itself (proxy mode, remux, transcoding).`);
+    }
 
     if (/^http (404|410)$/.test(error)) {
         return finding('bad', 'not_found', 'the provider says this stream does not exist',
@@ -127,12 +138,12 @@ function parsePlaylist(text, baseUrl) {
 }
 
 /** Turns the raw live probe into findings and display metrics. */
-function analyzeLive({ tries, plain, freshness, segment, account }) {
+function analyzeLive({ tries, plain, freshness, segment, account, forceProxy }) {
     const findings = [], metrics = [];
     const ok = tries.filter(t => t.ok);
 
     if (!ok.length) {
-        findings.push(explainFailure(tries.at(-1).attempt, account));
+        findings.push(explainFailure(tries.at(-1).attempt, account, forceProxy));
         const kinds = [...new Set(tries.map(t => t.error))];
         if (kinds.length > 1) findings.push(finding('info', 'mixed_errors', 'the attempts failed in different ways', kinds.join(', ')));
     } else {
@@ -252,7 +263,7 @@ async function probeSegment(segmentUrl, headers) {
     } finally { budget.stop(); }
 }
 
-async function diagnoseLive(item, source, account) {
+async function diagnoseLive(item, source, account, forceProxy) {
     const url = streamUrl(item, source);
     const tries = [];
     for (let i = 0; i < LIVE_TRIES; i++) {
@@ -286,7 +297,7 @@ async function diagnoseLive(item, source, account) {
         }
     }
 
-    const { findings, metrics } = analyzeLive({ tries, plain, freshness, segment, account });
+    const { findings, metrics } = analyzeLive({ tries, plain, freshness, segment, account, forceProxy });
     timeline = [
         ...tries.map((t, i) => ({ label: `playlist, try ${i + 1}`, ok: t.ok, hops: t.attempt.hops, totalMs: t.attempt.totalMs, error: t.error })),
         { label: 'playlist, no browser headers', ok: plain.ok, hops: plain.attempt.hops, totalMs: plain.attempt.totalMs, error: plain.error },
@@ -330,12 +341,12 @@ function moovPosition(buffer, totalSize) {
 }
 
 /** Turns the raw movie probe into findings and display metrics. */
-function analyzeMovie({ probes, seek, extension, account, durationSecs }) {
+function analyzeMovie({ probes, seek, extension, account, durationSecs, forceProxy }) {
     const findings = [], metrics = [];
     const probe = probes.at(-1);
 
     if (probe.error) {
-        findings.push(explainFailure({ error: probe.error, hops: probe.hops, snippet: probe.snippet, code: probe.code }, account));
+        findings.push(explainFailure({ error: probe.error, hops: probe.hops, snippet: probe.snippet, code: probe.code, headers: probe.headers }, account, forceProxy));
     } else {
         if (probes.length > 1) findings.push(finding('warn', 'cold_start', 'the first request failed, the retry worked', `first try: ${probes[0].error}. the provider may need a moment to fetch the file.`));
         const ttfb = probe.ttfbMs;
@@ -437,7 +448,7 @@ function movieUrl(item, source, folder = 'movie') {
     return `${source.url.replace(/\/$/, '')}/${folder}/${source.username}/${source.password}/${item.item_id}.${item.container_extension || 'mp4'}`;
 }
 
-async function diagnoseMovie(item, source, account, folder = 'movie') {
+async function diagnoseMovie(item, source, account, folder = 'movie', forceProxy) {
     const url = movieUrl(item, source, folder);
     if (!url) return { findings: [finding('bad', 'no_url', 'this movie has no stream url', 'the source did not provide one.')], metrics: [], timeline: [], steps: {} };
     validateHttpUrl(url);
@@ -475,7 +486,7 @@ async function diagnoseMovie(item, source, account, folder = 'movie') {
     }
 
     const { findings, metrics } = analyzeMovie({
-        probes, seek, account, durationSecs: item.durationSecs,
+        probes, seek, account, durationSecs: item.durationSecs, forceProxy,
         extension: item.container_extension || (item.stream_url || '').split('?')[0].split('.').pop()
     });
     const timeline = [
@@ -565,13 +576,19 @@ async function diagnose(type, sourceId, itemId, { seriesId } = {}) {
         try { item.durationSecs = Number((await xtreamApi.createFromSource(source).getVodInfo(item.item_id)).info?.duration_secs) || null; } catch { /* falls back to fixed limits */ }
     }
     const folder = type === 'episode' ? 'series' : 'movie';
-    const result = await (type === 'live' ? diagnoseLive(item, source, account) : diagnoseMovie(item, source, account, folder));
+    // Whether playback goes through this server decides how much a failure from here matters.
+    const forceProxy = (await settings.get().catch(() => ({}))).forceProxy === true;
+    const result = await (type === 'live' ? diagnoseLive(item, source, account, forceProxy) : diagnoseMovie(item, source, account, folder, forceProxy));
+    const verdict = verdictOf(result.findings);
     return {
         kind: type,
-        item: { name: item.name, source_id: item.source_id, item_id: item.item_id, ...(item.series_id && { series_id: item.series_id }) },
+        item: { name: item.name, source_id: item.source_id, item_id: item.item_id, ext: item.container_extension || null, ...(item.series_id && { series_id: item.series_id }) },
+        sourceType: source.type,
+        playback: { forceProxy },
         url: redact(type === 'live' ? streamUrl(item, source) : movieUrl(item, source, folder)),
         account,
-        verdict: verdictOf(result.findings),
+        verdict,
+        ...(verdict === 'warn' && result.findings.some(f => f.code === 'cdn_blocked') && { verdictLabel: 'could not be tested from this server' }),
         ...result,
         at: Date.now()
     };

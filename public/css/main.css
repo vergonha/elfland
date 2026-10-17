@@ -5291,7 +5291,7 @@ textarea {
 .findings .t { color: var(--color-text-primary); }
 .findings .d { font-size: 0.8125rem; color: var(--color-text-secondary); }
 .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-sm); margin-bottom: var(--space-md); }
-.metrics div { padding: var(--space-sm); background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.metrics > div { padding: var(--space-sm); background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .metrics .v { color: var(--color-text-primary); word-break: break-all; }
 .metrics .l { font-size: 0.6875rem; color: var(--color-text-muted); }
 .section-title { margin: var(--space-md) 0 var(--space-xs); font-size: 0.75rem; color: var(--color-text-muted); }

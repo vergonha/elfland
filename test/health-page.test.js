@@ -102,3 +102,68 @@ test('series checklist: selecting a season, running one at a time, stopping and 
     assert.equal(calls.length, 1, 'stop lets the running episode finish and skips the rest');
     assert.match(elements['series-progress'].textContent, /^stopped after 1/);
 });
+
+test('browser test: what the viewer sees, and the conclusion drawn against the server probe', () => {
+    const { page } = load();
+    const ok = { verdict: 'ok', findings: [], playback: { forceProxy: false } };
+    const blocked = { verdict: 'warn', findings: [{ code: 'cdn_blocked' }], playback: { forceProxy: false } };
+    const blockedForced = { ...blocked, playback: { forceProxy: true } };
+    const good = { path: 'direct', metadataMs: 900, playing: true, startMs: 1200, stalls: 0, stallMs: 0, advancedSec: 7.9, fillRate: 1.1, bufferAheadSec: 25,
+        width: 1920, height: 1080, host: 'cdn.example', env: {}, seekOk: true, seekMs: 600, seekPlayedSec: 2.9 };
+    const levels = r => r.findings.map(f => f.level + ':' + f.title).join(' | ');
+
+    // a healthy browser plus a blocked server: viewers are fine unless force proxy routes them through the server
+    let result = page.analyzeBrowserProbe(good, blocked);
+    assert.equal(result.conclusion.level, 'ok');
+    assert.match(result.conclusion.title, /viewers are fine: only the server is blocked/);
+    assert.match(levels(result), /ok:the connection is far ahead of playback/, 'a big buffer lead proves a fast connection even if the fill rate is low');
+    assert.match(levels(result), /ok:seeking works/);
+    assert.equal(page.analyzeBrowserProbe(good, blockedForced).conclusion.level, 'bad');
+    assert.match(page.analyzeBrowserProbe(good, blockedForced).conclusion.title, /force proxy/);
+    assert.equal(page.analyzeBrowserProbe(good, ok).conclusion.title, 'healthy end to end');
+    assert.match(page.analyzeBrowserProbe({ ...good, path: 'proxy', live: true, engine: 'hls.js' }, blocked).conclusion.detail, /through the proxy/);
+
+    // stalls during playback; the wait caused by a seek is not counted by the probe, so a clean sample has none
+    result = page.analyzeBrowserProbe({ ...good, stalls: 2, stallMs: 900 }, ok);
+    assert.match(levels(result), /warn:playback stalled 2 times/);
+    assert.equal(result.conclusion.level, 'warn');
+
+    // too slow: little buffer and a fill rate under realtime
+    const slow = { ...good, advancedSec: 2.1, fillRate: 0.43, bufferAheadSec: 2.3, seekOk: false };
+    result = page.analyzeBrowserProbe(slow, ok);
+    assert.match(levels(result), /bad:playback barely moved/);
+    assert.match(levels(result), /bad:downloading slower than playback/);
+    assert.match(levels(result), /warn:seeking did not complete/, 'a failed seek on a slow link is not blamed on the host');
+    assert.equal(result.conclusion.level, 'bad');
+    assert.match(result.conclusion.title, /barely plays/);
+    assert.match(page.analyzeBrowserProbe(slow, blocked).conclusion.detail, /server is blocked, so it cannot compare/);
+    assert.match(levels(page.analyzeBrowserProbe({ ...good, bufferAheadSec: 25, seekOk: false }, ok)), /bad:seeking did not complete/, 'a failed seek with healthy playback does point at the host');
+
+    // load failures and what the reachability check adds
+    result = page.analyzeBrowserProbe({ host: 'cdn.example', env: {}, stalls: 0, errorCode: 4, reachable: true }, ok);
+    assert.match(levels(result), /bad:this browser could not play it/);
+    assert.match(levels(result), /info:the address is reachable/);
+    assert.match(result.conclusion.title, /works from the server, fails in this browser/);
+    result = page.analyzeBrowserProbe({ host: 'cdn.example', env: { mixedContent: true }, stalls: 0, errorCode: 4, reachable: false }, ok);
+    assert.match(levels(result), /warn:the address is not reachable/);
+    assert.match(result.findings.at(-1).detail, /mixed content/);
+    assert.match(page.analyzeBrowserProbe({ host: 'h', env: {}, stalls: 0, errorCode: 4 }, blocked).conclusion.title, /fails here and the server is blocked too/);
+    assert.match(page.analyzeBrowserProbe({ host: 'h', env: {}, stalls: 0, loadTimeout: true }, null).conclusion.title, /broken for everyone/);
+
+    // live: hls.js errors in words, segment speed, and no "whole file buffered" nonsense
+    const live = { path: 'proxy', live: true, engine: 'hls.js', manifestMs: 800, playing: true, startMs: 1500, stalls: 0, stallMs: 0, advancedSec: 9.9, fillRate: 1, bufferAheadSec: 10,
+        fullyBuffered: false, host: 'x', env: {}, frags: 5, fragLoadMs: [300, 400, 350, 500, 450], fragSeconds: [2, 2, 2, 2, 2], hlsErrors: [] };
+    result = page.analyzeBrowserProbe(live, ok, 10000);
+    assert.equal(result.conclusion.level, 'ok');
+    assert.ok(!/buffered/.test(levels(result)));
+    result = page.analyzeBrowserProbe({ ...live, fragLoadMs: [1900, 2100, 2000, 1800, 2200] }, ok, 10000);
+    assert.match(levels(result), /bad:segments load slower than they play/);
+    result = page.analyzeBrowserProbe({ host: 'x', env: {}, stalls: 0, live: true, hlsErrors: [{ fatal: true, details: 'manifestLoadError', httpCode: 404 }] }, ok, 10000);
+    assert.match(result.findings.find(f => f.level === 'bad').detail, /the playlist could not be loaded \(http 404\)/);
+    assert.equal(page.analyzeBrowserProbe({ unsupported: true, env: {}, stalls: 0 }, ok).conclusion.title, 'inconclusive');
+
+    assert.ok(page.canBrowserTest({ kind: 'movie', sourceType: 'xtream' }));
+    assert.ok(page.canBrowserTest({ kind: 'live', sourceType: 'xtream' }));
+    assert.ok(!page.canBrowserTest({ kind: 'episode', sourceType: 'm3u' }));
+    assert.match(page.renderDiagnosis({ kind: 'movie', verdict: 'warn', verdictLabel: 'could not be tested from this server', url: 'u', findings: [], metrics: [], timeline: [] }), /could not be tested from this server/);
+});
