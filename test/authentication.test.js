@@ -172,3 +172,108 @@ test('real authenticated media requests deliver remux and owned HLS output witho
     assert.equal((await fixture.request('/api/transcode/lease', { ...post({ playbackLeaseId: lease }), method: 'DELETE', headers })).status, 200);
     assert.equal((await fetch(`${fixture.base}${session.body.playlistUrl}`, { headers })).status, 404);
 });
+
+test('local login matches case variants and preserves account IDs, roles, passwords and display spelling', async t => {
+    const { request } = await serverFixture(t);
+    const admin = await request('/api/auth/setup', post({ username: 'Owner', password: 'owner-password' }));
+    assert.equal(admin.status, 201);
+    const headers = { Cookie: admin.cookie.split(';')[0] };
+    const viewer = await request('/api/auth/users', { ...post({ username: 'Viewer', password: 'viewer-password', role: 'viewer' }), headers });
+    assert.equal(viewer.status, 201);
+    for (const username of ['viewer', 'VIEWER', 'vIeWeR']) {
+        const login = await request('/api/auth/login', post({ username, password: 'viewer-password' }));
+        assert.equal(login.status, 200);
+        assert.deepEqual(login.body.user, { id: viewer.body.id, username: 'Viewer', role: 'viewer' });
+    }
+    assert.equal((await request('/api/auth/login', post({ username: 'viewer', password: 'VIEWER-PASSWORD' }))).status, 401);
+    assert.equal((await request('/api/auth/login', post({ username: 'owner', password: 'viewer-password' }))).status, 401);
+    assert.equal((await request('/api/auth/users', { ...post({ username: 'VIEWER', password: 'another-password', role: 'admin' }), headers })).status, 500);
+    assert.equal((await request(`/api/auth/users/${viewer.body.id}`, { method: 'PUT', body: JSON.stringify({ username: 'OWNER' }), headers })).status, 500);
+    assert.equal((await request(`/api/auth/users/${viewer.body.id}`, { method: 'PUT', body: JSON.stringify({ username: 'VIEWER' }), headers })).status, 200);
+    const renamed = await request('/api/auth/login', post({ username: 'viewer', password: 'viewer-password' }));
+    assert.equal(renamed.body.user.id, viewer.body.id); assert.equal(renamed.body.user.username, 'VIEWER');
+});
+
+test('legacy case-only accounts retain exact logins and reject ambiguous case variants until renamed', async t => {
+    const fixture = await serverFixture(t);
+    await fixture.request('/api/auth/setup', post({ username: 'Admin', password: 'admin-password' }));
+    await fixture.stop();
+    const filename = path.join(fixture.dir, 'db.json'), data = JSON.parse(fs.readFileSync(filename, 'utf8'));
+    const bcrypt = require('bcryptjs');
+    data.users.push({ id: data.nextId++, username: 'Twin', role: 'admin', passwordHash: await bcrypt.hash('first-password', 4) },
+        { id: data.nextId++, username: 'twin', role: 'viewer', passwordHash: await bcrypt.hash('second-password', 4) });
+    fs.writeFileSync(filename, JSON.stringify(data)); await fixture.start();
+    for (const [username, password, role] of [['Twin', 'first-password', 'admin'], ['twin', 'second-password', 'viewer']]) {
+        const login = await fixture.request('/api/auth/login', post({ username, password }));
+        assert.equal(login.status, 200); assert.equal(login.body.user.role, role);
+    }
+    assert.equal((await fixture.request('/api/auth/login', post({ username: 'TWIN', password: 'first-password' }))).status, 401);
+    assert.equal((await fixture.request('/api/auth/login', post({ username: 'Twin', password: 'second-password' }))).status, 401);
+    const owner = await fixture.request('/api/auth/login', post({ username: 'admin', password: 'admin-password' }));
+    const headers = { Cookie: owner.cookie.split(';')[0] }, lower = data.users.find(user => user.username === 'twin');
+    assert.equal((await fixture.request(`/api/auth/users/${lower.id}`, { method: 'PUT', body: JSON.stringify({ username: 'twin', password: 'changed-password' }), headers })).status, 200);
+    assert.equal((await fixture.request(`/api/auth/users/${lower.id}`, { method: 'PUT', body: JSON.stringify({ username: 'TWIN' }), headers })).status, 500);
+    assert.equal((await fixture.request(`/api/auth/users/${lower.id}`, { method: 'PUT', body: JSON.stringify({ username: 'Other' }), headers })).status, 200);
+    const resolved = await fixture.request('/api/auth/login', post({ username: 'TWIN', password: 'first-password' }));
+    assert.equal(resolved.status, 200); assert.equal(resolved.body.user.username, 'Twin');
+});
+
+test('recorded TS movies and series use copy sessions, preserve totals and seek on a provider without ranges',
+    { skip: process.env.NODECAST_BROWSER_TESTS === '1' ? false : 'Browser tests enabled in CI', timeout: 90000 }, async t => {
+        const { chromium }=require('playwright');
+        const fixture=await serverFixture(t);
+        const binary=spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status===0?'ffmpeg':require('ffmpeg-static');
+        const recorded=path.join(fixture.dir,'recorded.ts');
+        const generated=spawnSync(binary,['-hide_banner','-loglevel','error','-y',
+            '-f','lavfi','-i','color=c=red:s=160x90:r=10:d=12','-f','lavfi','-i','color=c=blue:s=160x90:r=10:d=12',
+            '-f','lavfi','-i','sine=frequency=1000:sample_rate=48000:duration=24',
+            '-filter_complex','[0:v][1:v]concat=n=2:v=1:a=0[v]','-map','[v]','-map','2:a',
+            '-c:v','libx264','-threads','1','-preset','ultrafast','-g','10','-c:a','aac','-ac','2','-f','mpegts',recorded],{encoding:'utf8',timeout:15000});
+        assert.equal(generated.status,0,generated.stderr);
+        const media=fs.readFileSync(recorded),provider=http.createServer((req,res)=>{
+            // This origin always ignores Range and sends the full recording progressively.
+            res.writeHead(200,{'Content-Type':'video/mp2t'});res.write(media);res.end();
+        });
+        await new Promise(resolve=>provider.listen(0,'127.0.0.1',resolve));
+        t.after(()=>new Promise(resolve=>{provider.close(resolve);provider.closeAllConnections();}));
+        const source=`http://127.0.0.1:${provider.address().port}/recorded.ts`;
+        const admin=await fixture.request('/api/auth/setup',post({username:'Owner',password:'owner-password'}));assert.equal(admin.status,201);
+        const cookie=admin.cookie.split(';')[0],headers={Cookie:cookie};
+        const browser=await chromium.launch({headless:true,executablePath:process.env.NODECAST_BROWSER_EXECUTABLE||undefined});t.after(()=>browser.close());
+        const context=await browser.newContext();const split=cookie.indexOf('=');
+        await context.addCookies([{name:cookie.slice(0,split),value:cookie.slice(split+1),url:fixture.base}]);
+        const page=await context.newPage(),requests=[],errors=[];
+        page.on('pageerror',error=>errors.push(error.message));
+        page.on('request',request=>{if(request.url().includes('/api/transcode/session'))requests.push(JSON.parse(request.postData()));});
+        await page.route('https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js',route=>route.fulfill({contentType:'application/javascript',body:fs.readFileSync(require.resolve('hls.js/dist/hls.min.js'))}));
+        await page.route('https://fonts.**',route=>route.abort());
+        await page.route('**/api/probe?**',async route=>{const response=await route.fetch();const info=await response.json();await route.fulfill({response,json:{...info,duration:0}});});
+        await page.goto(fixture.base);await page.waitForFunction(()=>window.app?.pages?.watch);
+        for(const [type,settings]of [['movie',{autoTranscode:true,forceRemux:false}],['series',{autoTranscode:false,forceRemux:true}]]){
+            await fixture.request('/api/settings',{method:'PUT',headers,body:JSON.stringify(settings)});
+            await page.evaluate(async({source,type})=>{
+                const watch=window.app.pages.watch;window.app.navigateTo('watch');
+                watch.content={type};watch.resumeTime=0;await watch.loadVideo(source);
+            },{source,type});
+            await page.waitForFunction(()=>window.app.pages.watch.currentSessionId&&window.app.pages.watch.video.readyState>=2&&window.app.pages.watch.sourceDuration>20);
+            const original=await page.evaluate(()=>({session:window.app.pages.watch.currentSessionId,total:window.app.pages.watch.getPlaybackDuration()}));
+            assert.ok(original.total>23&&original.total<26,JSON.stringify(original));
+            assert.equal(requests.at(-1).videoMode,'copy');assert.equal(requests.at(-1).isLive,false);
+            const pixel=()=>page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=canvas.height=1;canvas.getContext('2d').drawImage(window.app.pages.watch.video,0,0,1,1);return Array.from(canvas.getContext('2d').getImageData(0,0,1,1).data);});
+            let color=await pixel();assert.ok(color[0]>color[2]+100,JSON.stringify(color));
+            await page.evaluate(()=>window.app.pages.watch.seekToContentTime(16));
+            await page.waitForFunction(old=>window.app.pages.watch.currentSessionId!==old&&window.app.pages.watch.video.readyState>=2,original.session);
+            color=await pixel();assert.ok(color[2]>color[0]+100,JSON.stringify(color));
+            assert.equal(requests.at(-1).seekOffset,16);
+            assert.equal(await page.evaluate(()=>window.app.pages.watch.getPlaybackDuration()),original.total);
+            const forward=await page.evaluate(()=>window.app.pages.watch.currentSessionId);
+            assert.equal((await fixture.request(`/api/transcode/${original.session}/stream.m3u8`,{headers})).status,404);
+            await page.evaluate(()=>window.app.pages.watch.seekToContentTime(4));
+            await page.waitForFunction(old=>window.app.pages.watch.currentSessionId!==old&&window.app.pages.watch.video.readyState>=2,forward);
+            color=await pixel();assert.ok(color[0]>color[2]+100,JSON.stringify(color));
+            assert.equal(requests.at(-1).seekOffset,4);
+            assert.equal(await page.evaluate(()=>window.app.pages.watch.getPlaybackDuration()),original.total);
+            await page.evaluate(()=>window.app.pages.watch.stop());
+        }
+        assert.deepEqual(errors,[]);await page.close();
+    });

@@ -1,3 +1,4 @@
+const { parseProgram } = require('../services/mpegTsProgram');
 const { redactUrl, redactText, validateHttpUrl } = require('../services/urlSecurity');
 const express = require('express');
 const router = express.Router();
@@ -73,8 +74,9 @@ router.get('/', async (req, res) => {
         return res.status(400).json({ error: 'URL must be an http:// or https:// stream URL' });
     }
 
-    let audioCodecs;
+    let audioCodecs, program;
     try {
+        program = parseProgram(req.query.program);
         audioCodecs = parseAudioCodecs(req.query.audioCodecs);
     } catch (error) {
         return res.status(400).json({ error: error.message });
@@ -120,14 +122,13 @@ router.get('/', async (req, res) => {
         '-i', safeUrl,
         // STRICT MAPPING: Only map video and audio, ignore subtitles/data/attachments
         // This prevents remux failure when source container has incompatible subtitle tracks (e.g. MKV -> MP4)
-        '-map', '0:v',
-        '-map', '0:a',
+        '-map', program === null ? '0:v' : `0:p:${program}:v:0`,
+        '-map', program === null ? '0:a' : `0:p:${program}:a?`,
         // Drop subtitles (-sn) and data (-dn) explicitly
         '-sn', '-dn',
         // Copy streams without re-encoding
         '-c', 'copy',
-        // Ensure extradata is correctly extracted/converted (fixes Annex B -> AVCC issues in Firefox)
-        '-bsf:v', 'dump_extra',
+        // The MP4 muxer handles AVC framing; prepending container extradata corrupts AVCC packets.
         // Convert ADTS only on probed AAC tracks; leave MP3/AC3/EAC3 untouched.
         ...audioFilterArgs(audioCodecs),
         // Handle timestamp discontinuities at output

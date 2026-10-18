@@ -1,3 +1,4 @@
+const { discoverOidcEndpoints } = require('./services/oidcDiscovery');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const passport = require('passport');
@@ -142,21 +143,19 @@ function configureSessionSerialization(getUserById) {
 /**
  * Configure Passport OpenID Connect Strategy
  */
-function configureOidcStrategy(findUserByOidcId, findUserByEmail, createUser) {
+async function configureOidcStrategy(findUserByOidcId, findUserByEmail, createUser) {
     if (!process.env.OIDC_ISSUER_URL || !process.env.OIDC_CLIENT_ID || !process.env.OIDC_CLIENT_SECRET) {
         console.warn('OIDC configuration missing - SSO disabled');
-        return;
+        return false;
     }
 
     const { Strategy: OpenIDConnectStrategy } = require('passport-openidconnect');
 
+    const endpoints = await discoverOidcEndpoints(process.env);
     passport.use(new OpenIDConnectStrategy({
-        issuer: process.env.OIDC_ISSUER_URL || 'https://mock-issuer.com', // Dummy default for mock
-        authorizationURL: process.env.OIDC_AUTH_URL || `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/auth`,
-        tokenURL: process.env.OIDC_TOKEN_URL || `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/token`,
-        userInfoURL: process.env.OIDC_USERINFO_URL || `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/userinfo`,
-        clientID: process.env.OIDC_CLIENT_ID || 'mock-client-id',
-        clientSecret: process.env.OIDC_CLIENT_SECRET || 'mock-secret',
+        ...endpoints,
+        clientID: process.env.OIDC_CLIENT_ID,
+        clientSecret: process.env.OIDC_CLIENT_SECRET,
         callbackURL: process.env.OIDC_CALLBACK_URL || '/api/auth/oidc/callback',
         scope: ['openid', 'profile', 'email']
     },
@@ -233,6 +232,7 @@ function configureOidcStrategy(findUserByOidcId, findUserByEmail, createUser) {
                 return done(err);
             }
         }));
+    return true;
 }
 
 /**

@@ -117,15 +117,6 @@ class WatchPage {
             window.addEventListener('resize', updateIosUiBottom);
         }
 
-        // iOS: use custom --vh unit to avoid 100vh issues with dynamic toolbar
-        const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
-        const watchVideoSection = document.querySelector('.watch-video-section');
-        if (isIOS && watchVideoSection) {
-            const vh = window.innerHeight * 0.01;
-            document.documentElement.style.setProperty('--vh', `${vh}px`);
-            watchVideoSection.style.height = 'calc(var(--vh) * 100)';
-        }
-
         // Apply safe area + iOS toolbar padding to overlay
         if (this.overlay) {
             this.overlay.style.paddingBottom = 'calc(env(safe-area-inset-bottom, 0px) + var(--ios-ui-bottom, 0px) + 12px)';
@@ -420,6 +411,7 @@ class WatchPage {
         this.stop();
         this.setSourceDuration(VodDuration.firstValid(VodDuration.fromContent(this.content || {}), knownDuration));
         const playbackGeneration = this.playbackGeneration;
+        const program = this.content?.program ?? this.content?.data?.program ?? null;
         let probeInfo = null;
 
         // Show loading spinner
@@ -444,10 +436,10 @@ class WatchPage {
             console.log('[WatchPage] Auto Transcode enabled. Probing stream...');
             try {
                 const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
-                const info = await probeRes.json();
+                const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(url, { program, userAgent: ua || '' });
                 if (this.playbackGeneration !== playbackGeneration) return;
                 probeInfo = info;
+                this.getCaptionTracks().setProbe(info, url);
                 this.setSourceDuration(info.duration);
                 console.log(`[WatchPage] Probe result: video=${info.video}, audio=${info.audio}, ${info.width}x${info.height}, compatible=${info.compatible}`);
 
@@ -467,6 +459,7 @@ class WatchPage {
                     this.updateTranscodeStatus(statusMode, statusText);
                     if (this.playbackGeneration !== playbackGeneration) return;
                     const playlistUrl = await this.startTranscodeSession(url, {
+                        program,
                         videoMode,
                         seekOffset: this.resumeTime, // Ensure seekOffset is passed
                         videoCodec: info.video,
@@ -479,21 +472,15 @@ class WatchPage {
                     this.setVolumeFromStorage();
                     return;
                 } else if (info.needsRemux) {
-                    // Remux (container swap) currently doesn't use session logic, uses direct stream
-                    // TODO: Move remux to session logic if seeking is needed for TS files
-                    console.log('[WatchPage] Auto: Using remux (.ts container)');
+                    console.log('[WatchPage] Auto: Using seekable remux session');
                     this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
-                    const finalUrl = this.getRemuxUrl(url, info.audioCodecs || [info.audio]);
-                    this.video.src = finalUrl;
-                    this.video.play().catch(e => {
-                        if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
-                    });
-                    this.setVolumeFromStorage();
+                    await this.playRemuxSession(url, info, program, playbackGeneration);
                     return;
                 }
                 // Compatible - fall through to normal playback
                 console.log('[WatchPage] Auto: Using normal playback (compatible)');
             } catch (err) {
+                if (err.name === 'AbortError') return;
                 console.warn('[WatchPage] Probe failed, using normal playback:', err.message);
                 // Continue with normal playback on probe failure
             }
@@ -508,6 +495,7 @@ class WatchPage {
             this.updateTranscodeStatus(statusMode, statusText);
             if (this.playbackGeneration !== playbackGeneration) return;
             const playlistUrl = await this.startTranscodeSession(url, {
+                program,
                 videoMode: 'encode',
                 seekOffset: this.resumeTime
             });
@@ -525,14 +513,15 @@ class WatchPage {
             let videoCodec = 'unknown';
             try {
                 const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
-                const info = await probeRes.json();
+                const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(url, { program, userAgent: ua || '' });
                 if (this.playbackGeneration !== playbackGeneration) return;
                 videoCodec = info.video;
-            } catch (e) { console.warn('Probe failed for force audio, assuming h264'); }
+                this.getCaptionTracks().setProbe(info, url);
+            } catch (e) { if (e.name === 'AbortError') return; console.warn('Probe failed for force audio, assuming h264'); }
 
             if (this.playbackGeneration !== playbackGeneration) return;
             const playlistUrl = await this.startTranscodeSession(url, {
+                program,
                 videoMode: 'copy',
                 videoCodec,
                 seekOffset: this.resumeTime
@@ -544,25 +533,20 @@ class WatchPage {
         }
 
         // Priority 2: Force Remux for raw TS streams
-        if (settings.forceRemux && isRawTs) {
+        if ((settings.forceRemux && isRawTs) || (program !== null && !looksLikeHls)) {
             console.log('[WatchPage] Force Remux enabled');
-            this.updateTranscodeStatus('remuxing', 'Remux (Force)');
+            this.updateTranscodeStatus('remuxing', settings.forceRemux ? 'Remux (Force)' : 'Remux (Program)');
             if (!probeInfo) {
                 try {
                     const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                    const response = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
-                    probeInfo = await response.json();
+                    probeInfo = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(url, { program, userAgent: ua || '' });
                 } catch (error) {
+                    if (error.name === 'AbortError') return;
                     console.warn('[WatchPage] Remux probe failed:', error.message);
                 }
             }
             if (this.playbackGeneration !== playbackGeneration) return;
-            const finalUrl = this.getRemuxUrl(url, probeInfo?.audioCodecs || (probeInfo?.audio ? [probeInfo.audio] : []));
-            this.video.src = finalUrl;
-            this.video.play().catch(e => {
-                if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
-            });
-            this.setVolumeFromStorage();
+            await this.playRemuxSession(url, probeInfo, program, playbackGeneration);
             return;
         }
 
@@ -580,6 +564,7 @@ class WatchPage {
         } else {
             // Direct playback for mp4/mkv/avi
             this.updateTranscodeStatus('direct', 'Direct Play');
+            this.getCaptionTracks().useNative({ allowProbe: !looksLikeHls });
             this.playFile(url, needsProxy, playbackGeneration);
         }
 
@@ -600,11 +585,25 @@ class WatchPage {
         });
     }
 
+    /** Start a seekable VOD session without re-encoding compatible video. */
+    async playRemuxSession(url, info, program, generation) {
+        this.getCaptionTracks().setProbe(info, url);
+        const playlist = await this.startTranscodeSession(url, {
+            program, videoMode: 'copy', seekOffset: this.resumeTime,
+            videoCodec: info?.video, audioCodec: info?.audio,
+            audioChannels: info?.audioChannels, videoHeight: info?.height
+        });
+        if (!playlist || this.playbackGeneration !== generation) return;
+        this.playHls(playlist);
+        this.setVolumeFromStorage();
+    }
+
     /**
      * Play HLS stream using Hls.js
      */
     playHls(url) {
         if (this.hls) {
+            this.captionTracks?.captureRemoteSelection();
             this.hls.destroy();
         }
 
@@ -613,24 +612,18 @@ class WatchPage {
             maxMaxBufferLength: 60,
             startLevel: -1,
             enableWorker: true,
+            renderTextTracksNatively: false,
         });
 
         const hls = this.hls, generation = this.playbackGeneration;
+        this.audioRecovery?.dispose();
+        this.audioRecovery = new HlsAudioRecovery(hls, this.video, Hls.Events,
+            () => this.hls === hls && this.playbackGeneration === generation,
+            { beforeRecovery: () => this.getCaptionTracks().prepareMediaRecovery() });
+        this.getCaptionTracks().setTimeOffset(this.currentSessionId ? this.playbackTimeOffset : 0);
+        this.getCaptionTracks().bindHls(hls, Hls.Events);
         this.hls.loadSource(url);
         this.hls.attachMedia(this.video);
-
-        // Listen for subtitle track updates
-        this.hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (event, data) => {
-            if (this.hls !== hls || this.playbackGeneration !== generation) return;
-            console.log('[WatchPage] Subtitle tracks updated:', data.subtitleTracks);
-            // Wait a moment for native text tracks to populate
-            setTimeout(() => { if (this.hls === hls && this.playbackGeneration === generation) this.updateCaptionsTracks(); }, 100);
-        });
-
-        this.hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (event, data) => {
-            if (this.hls !== hls || this.playbackGeneration !== generation) return;
-            console.log('[WatchPage] Subtitle track switched:', data);
-        });
 
         this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
             if (this.hls !== hls || this.playbackGeneration !== generation) return;
@@ -639,8 +632,20 @@ class WatchPage {
             });
         });
 
+        this.hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+            if (this.hls !== hls || this.playbackGeneration !== generation) return;
+            // A partial playlist is not the movie's total. Only learn an unknown duration at ENDLIST.
+            const duration = Number(data?.details?.totalduration);
+            if (this.currentSessionId && !this.sourceDuration && data?.details?.live === false && Number.isFinite(duration) && duration > 0) {
+                this.setSourceDuration((this.playbackTimeOffset || 0) + duration);
+            }
+        });
+
         this.hls.on(Hls.Events.ERROR, (event, data) => {
             if (this.hls !== hls || this.playbackGeneration !== generation) return;
+            const mediaError = data.type === Hls.ErrorTypes.MEDIA_ERROR;
+            const needsRecovery = mediaError && (data.fatal || ['bufferAppendError', 'bufferAppendingError', 'fragParsingError'].includes(data.details));
+            if (needsRecovery && this.audioRecovery.requestRecovery('media error')) return;
             if (data.fatal) {
                 console.error('[WatchPage] HLS fatal error:', data);
                 // Try proxy on CORS error (only if not already proxied/transcoded)
@@ -662,12 +667,16 @@ class WatchPage {
         if (this.volumeSlider) this.volumeSlider.value = savedVolume;
     }
 
-    getRemuxUrl(url, audioCodecs = []) {
-        return `/api/remux?url=${encodeURIComponent(url)}&audioCodecs=${encodeURIComponent(audioCodecs.join(','))}`;
+    getRemuxUrl(url, audioCodecs = [], program = null) {
+        const selection = program == null ? '' : '&program=' + encodeURIComponent(program);
+        return `/api/remux?url=${encodeURIComponent(url)}&audioCodecs=${encodeURIComponent(audioCodecs.join(','))}${selection}`;
     }
 
     stop() {
+        this.playbackProbe?.cancel();
         this.playbackGeneration = (this.playbackGeneration || 0) + 1;
+        this.audioRecovery?.dispose();
+        this.audioRecovery = null;
         // Stop history tracking and save final progress
         this.stopHistoryTracking();
         this.saveProgress();
@@ -695,6 +704,8 @@ class WatchPage {
             this.hls.destroy();
             this.hls = null;
         }
+        this.getCaptionTracks().reset();
+        this.closeCaptionsMenu();
         if (this.video) {
             this.video.pause();
             this.video.src = '';
@@ -736,6 +747,7 @@ class WatchPage {
         if (!this.currentSessionId) { this.video.currentTime = target; return; }
         const generation = this.playbackGeneration;
         this.pendingSeekProgress = target;
+        this.captionTracks?.captureRemoteSelection();
         this.hls?.destroy();
         this.hls = null;
         this.video.pause();
@@ -761,29 +773,7 @@ class WatchPage {
     }
 
     toggleFullscreen() {
-        const container = document.querySelector('.watch-video-section');
-        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
-
-        if (isFullscreen) {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen();
-            }
-        } else {
-            if (container?.requestFullscreen) {
-                container.requestFullscreen().catch(err => {
-                    console.error('Fullscreen error:', err);
-                    // Some mobile browsers reject container fullscreen; fall back to the native video player
-                    if (this.video?.webkitEnterFullscreen) this.video.webkitEnterFullscreen();
-                });
-            } else if (container?.webkitRequestFullscreen) {
-                container.webkitRequestFullscreen();
-            } else if (this.video?.webkitEnterFullscreen) {
-                // iOS Safari: use native video fullscreen
-                this.video.webkitEnterFullscreen();
-            }
-        }
+        return PlayerFullscreen.toggle(this.video, document.querySelector('.watch-video-section'), document);
     }
 
     async togglePictureInPicture() {
@@ -1021,57 +1011,16 @@ class WatchPage {
         this.captionsMenuOpen = false;
     }
 
-    updateCaptionsTracks() {
-        if (!this.captionsList || !this.video) return;
-
-        // Build list of available text tracks
-        const tracks = this.video.textTracks;
-        let html = '<button class="captions-option" data-index="-1">Off</button>';
-
-        for (let i = 0; i < tracks.length; i++) {
-            const track = tracks[i];
-            if (track.kind === 'subtitles' || track.kind === 'captions') {
-                const label = track.label || track.language || `Track ${i + 1}`;
-                const isActive = track.mode === 'showing';
-                html += `<button class="captions-option ${isActive ? 'active' : ''}" data-index="${i}">${label}</button>`;
-            }
+    getCaptionTracks() {
+        if (!this.captionTracks) {
+            this.captionTracks = new CaptionTracks(this.video, () => this.updateCaptionsTracks());
         }
-
-        // Check if any track is active, if not mark "Off" as active
-        let anyActive = false;
-        for (let i = 0; i < tracks.length; i++) {
-            if (tracks[i].mode === 'showing') anyActive = true;
-        }
-        if (!anyActive) {
-            html = html.replace('class="captions-option"', 'class="captions-option active"');
-        }
-
-        this.captionsList.innerHTML = html;
-
-        // Add click handlers
-        this.captionsList.querySelectorAll('.captions-option').forEach(btn => {
-            btn.addEventListener('click', () => this.selectCaptionTrack(parseInt(btn.dataset.index)));
-        });
+        return this.captionTracks;
     }
 
-    selectCaptionTrack(index) {
-        if (!this.video) return;
-
-        const tracks = this.video.textTracks;
-
-        // Disable all tracks
-        for (let i = 0; i < tracks.length; i++) {
-            tracks[i].mode = 'hidden';
-        }
-
-        // Enable selected track
-        if (index >= 0 && index < tracks.length) {
-            tracks[index].mode = 'showing';
-        }
-
-        // Update UI
-        this.updateCaptionsTracks();
-        this.closeCaptionsMenu();
+    updateCaptionsTracks() {
+        if (!this.captionsList || !this.video) return;
+        this.getCaptionTracks().render(this.captionsList, () => this.closeCaptionsMenu());
     }
 
     // === Overlay Auto-Hide ===

@@ -21,7 +21,7 @@ test('probe preserves every audio track index including unknown codecs', () => {
 
 function playerFixture(name, settings, probe) {
     const window = { dispatchEvent() {} };
-    const context = { window, VodDuration: require('../public/js/components/VodDuration'), console: { log() {}, warn() {}, error() {} },
+    const context = { window, HlsAudioRecovery: require('../public/js/components/HlsAudioRecovery'), PlaybackProbe: require('../public/js/components/PlaybackProbe'), CaptionTracks: require('../public/js/components/CaptionTracks'), VodDuration: require('../public/js/components/VodDuration'), console: { log() {}, warn() {}, error() {} },
         CustomEvent: class {}, document: { getElementById() { return null; } },
         API: { settings: { get: async () => settings } }, fetch: probe };
     const file = name === 'VideoPlayer' ? 'components/VideoPlayer.js' : 'pages/WatchPage.js';
@@ -30,6 +30,9 @@ function playerFixture(name, settings, probe) {
     const element = { classList: { add() {}, remove() {} } };
     Object.assign(player, { settings, video: { src: '', play: async () => {}, querySelectorAll: () => [] },
         overlay: element, nowPlaying: element,
+        sessions: [],
+        async startTranscodeSession(url, options) { this.sessions.push({ url, options }); return '/api/session/stream.m3u8'; },
+        playHls(url) { this.video.src = url; },
         stop() { this.playbackGeneration = (this.playbackGeneration || 0) + 1; this.video.src = ''; },
         updateTranscodeStatus() {}, updateQualityBadge() {}, updateNowPlaying() {},
         showNowPlayingOverlay() {}, fetchEpgData() {}, setVolumeFromStorage() {}, showLoading() {},
@@ -41,7 +44,7 @@ function playerFixture(name, settings, probe) {
 
 for (const name of ['VideoPlayer', 'WatchPage']) {
     for (const mode of ['autoTranscode', 'forceRemux']) {
-        test(`${name} ${mode} propagates mixed audio codecs to the remux request`, async () => {
+        test(`${name} ${mode} preserves probe metadata when choosing remux playback`, async () => {
             const requests = [];
             const player = playerFixture(name, { [mode]: true }, async url => {
                 requests.push(url);
@@ -49,6 +52,15 @@ for (const name of ['VideoPlayer', 'WatchPage']) {
             });
             const url = 'http://provider.test/media.ts?password=abc/';
             await player.start(url);
+            if (name === 'WatchPage') {
+                assert.equal(player.sessions.length, 1);
+                assert.equal(player.sessions[0].url, url);
+                assert.equal(player.sessions[0].options.videoMode, 'copy');
+                assert.equal(player.sessions[0].options.audioCodec, 'mp3');
+                assert.equal(player.video.src, '/api/session/stream.m3u8');
+                assert.equal(requests.length, 1);
+                return;
+            }
             const remux = new URL(player.video.src, 'http://app.test');
             assert.equal(remux.pathname, '/api/remux');
             assert.equal(remux.searchParams.get('url'), url);

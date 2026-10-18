@@ -21,24 +21,33 @@ auth.configureSessionSerialization(
     async (id) => await db.users.getById(id)
 );
 
-// Configure OIDC Strategy
-auth.configureOidcStrategy(
+// Configure OIDC once; SSO routes wait until discovery and registration finish.
+let oidcAvailable = false;
+const oidcReady = auth.configureOidcStrategy(
     async (oidcId) => await db.users.getByOidcId(oidcId),
     async (email) => await db.users.getByEmail(email),
     async (userData) => await db.users.create(userData)
-);
+).then(available => { oidcAvailable = available; }).catch(error => {
+    console.error('[OIDC] SSO unavailable:', error.message);
+});
+router.oidcReady = oidcReady;
+async function requireOidc(req, res, next) {
+    await oidcReady;
+    if (!oidcAvailable) return res.status(503).json({ error: 'Single sign-on is unavailable. Contact your administrator.' });
+    next();
+}
 
 /**
  * Start OIDC Login
  * GET /api/auth/oidc/login
  */
-router.get('/oidc/login', auth.passport.authenticate('openidconnect'));
+router.get('/oidc/login', requireOidc, auth.passport.authenticate('openidconnect'));
 
 /**
  * OIDC Callback
  * GET /api/auth/oidc/callback
  */
-router.get('/oidc/callback',
+router.get('/oidc/callback', requireOidc,
     auth.passport.authenticate('openidconnect', { session: false, failureRedirect: '/login.html?error=SSO+Failed' }),
     (req, res) => {
         // Successful authentication

@@ -181,7 +181,8 @@ process.on('SIGTERM', async () => {
 app.get('/api/health', require('./services/health'));
 app.get('/api/version', (req, res) => res.json({ version: require('../package.json').version }));
 app.use('/api', auth.requireSameOrigin);
-app.use('/api/auth', require('./routes/auth'));
+const authRoutes = require('./routes/auth');
+app.use('/api/auth', authRoutes);
 app.use('/api', auth.requireAuth);
 app.use('/api', (req, res, next) => {
     try {
@@ -209,6 +210,7 @@ app.use('/api/probe', require('./routes/probe'));
 app.use('/api/subtitle', require('./routes/subtitle'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/history', require('./routes/history'));
+app.use('/api/openwebif', require('./routes/openwebif'));
 
 // SPA fallback - serve index.html for all non-API routes
 app.get('*', (req, res) => {
@@ -227,6 +229,8 @@ const server = app.listen(PORT, async () => {
     // Prime the adult content filter flag from stored settings
     await require('./services/contentFilter').refresh();
 
+    // Finish SSO discovery before announcing readiness. Local login remains available on failure.
+    await authRoutes.oidcReady;
     // Load plugins
     await loadPlugins().catch(err => {
         console.error('Plugin initialization failed:', err);
@@ -244,7 +248,7 @@ const server = app.listen(PORT, async () => {
         // Detect hardware acceleration capabilities
         try {
             const hwDetect = require('./services/hwDetect');
-            await hwDetect.detect();
+            await hwDetect.detect(app.locals.ffmpegPath || 'ffmpeg');
         } catch (err) {
             console.warn('Hardware detection failed:', err.message);
         }

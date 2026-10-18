@@ -105,7 +105,7 @@ router.get('/hw-info', async (req, res) => {
 
         // If not yet detected, run detection now
         if (!capabilities) {
-            capabilities = await hwDetect.detect();
+            capabilities = await hwDetect.detect(req.app.locals.ffmpegPath || 'ffmpeg');
         }
 
         res.json(capabilities);
@@ -122,7 +122,7 @@ router.get('/hw-info', async (req, res) => {
 router.post('/hw-info/refresh', async (req, res) => {
     try {
         const hwDetect = require('../services/hwDetect');
-        const capabilities = await hwDetect.refresh();
+        const capabilities = await hwDetect.refresh(req.app.locals.ffmpegPath || 'ffmpeg');
         res.json(capabilities);
     } catch (err) {
         console.error('Error refreshing hardware info:', err);

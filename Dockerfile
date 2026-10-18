@@ -19,13 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && if [ "$TARGETARCH" = "amd64" ]; then \
-        DRIVERS="mesa-va-drivers intel-media-va-driver vainfo"; \
+        DRIVERS="mesa-va-drivers intel-media-va-driver vainfo libmfx1 libmfx-gen1.2"; \
     else \
         DRIVERS=""; \
     fi \
     && apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     ffmpeg \
+    pciutils \
     python3 \
     make \
     g++ \

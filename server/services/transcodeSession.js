@@ -1,3 +1,4 @@
+const { parseProgram } = require('./mpegTsProgram');
 const { redactUrl, redactText, validateHttpUrl, FFMPEG_PROTOCOL_WHITELIST } = require('./urlSecurity');
 /**
  * Transcode Session Service
@@ -103,7 +104,8 @@ class TranscodeSession extends EventEmitter {
             upscaleEnabled: options.upscaleEnabled || false,
             upscaleMethod: options.upscaleMethod || 'hardware', // 'hardware' or 'software'
             upscaleTarget: options.upscaleTarget || '1080p',
-            ...options
+            ...options,
+            program: parseProgram(options.program)
         };
     }
 
@@ -230,8 +232,15 @@ class TranscodeSession extends EventEmitter {
         }
 
         // Map streams
-        args.push('-map', '0:v:0');
-        args.push('-map', '0:a:0?');
+        // Only map video/audio from the program: mapping the whole program pulls in
+        // DVB teletext/subtitle streams, which can't be encoded to HLS and kill FFmpeg
+        if (this.options.program) {
+            args.push('-map', `0:p:${this.options.program}:v:0`);
+            args.push('-map', `0:p:${this.options.program}:a:0?`);
+        } else {
+            args.push('-map', '0:v:0');
+            args.push('-map', '0:a:0?');
+        }
 
         // Add video encoder and filters based on selected encoder OR copy
         if (videoMode === 'copy') {
@@ -322,13 +331,19 @@ class TranscodeSession extends EventEmitter {
                     '-hwaccel_output_format', 'vaapi'
                 );
                 break;
-            case 'qsv':
+            case 'qsv': {
+                const device = hwDetect.getCapabilities()?.qsv?.device;
+                if (typeof device === 'string' && /^\/dev\/dri\/renderD\d+$/.test(device)) {
+                    args.push('-init_hw_device', 'qsv=nodecast:hw,child_device=' + device + ',child_device_type=vaapi',
+                        '-filter_hw_device', 'nodecast', '-hwaccel_device', 'nodecast');
+                }
                 // Intel QuickSync hardware decoding
                 args.push(
                     '-hwaccel', 'qsv',
                     '-hwaccel_output_format', 'qsv'
                 );
                 break;
+            }
             case 'amf':
                 // AMD AMF (no hwaccel input, AMF is encode-only)
                 // Decode on CPU, encode on GPU

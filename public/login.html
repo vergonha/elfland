@@ -238,14 +238,14 @@
             <small id="login-subtitle">tv player :: sign in</small>
         </h1>
 
-        <form class="login-form" id="login-form">
+        <form class="login-form" id="login-form" method="post" action="/api/auth/login">
             <p class="error-message" id="error-message"></p>
             <p class="setup-message" id="setup-message">no accounts yet. create the admin account.</p>
 
             <div class="form-row">
                 <label for="username">user &gt;</label>
                 <input type="text" id="username" name="username" required autocomplete="username"
-                    placeholder="john doe">
+                    autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="john doe">
             </div>
 
             <div class="form-row">
@@ -255,10 +255,11 @@
             </div>
 
             <div class="login-actions">
-                <button type="submit" id="submit-btn">sign in</button>
+                <button type="submit" id="submit-btn" disabled>sign in</button>
                 <button type="button" id="btn-sso-login">sso</button>
             </div>
         </form>
+        <noscript><p class="hint">javascript is required to sign in.</p></noscript>
     </main>
 
     <footer class="login-footer">
@@ -290,7 +291,9 @@
         async function checkSetupRequired() {
             try {
                 const response = await fetch('/api/auth/setup-required');
+                if (!response.ok) throw new Error('Sign-in status unavailable');
                 const data = await response.json();
+                if (typeof data.setupRequired !== 'boolean') throw new Error('Invalid sign-in status');
 
                 if (data.setupRequired) {
                     isSetupMode = true;
@@ -301,8 +304,12 @@
                     // Hide SSO in setup mode
                     document.getElementById('btn-sso-login').style.display = 'none';
                 }
+                document.getElementById('submit-btn').disabled = false;
             } catch (err) {
                 console.error('Error checking setup status:', err);
+                const message = document.getElementById('error-message');
+                message.textContent = 'Could not load sign-in status. Reload the page to try again.';
+                message.classList.add('show');
             }
         }
 

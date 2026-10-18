@@ -402,6 +402,14 @@ const settings = {
   }
 };
 
+// Preserve display spelling and IDs while preventing new case-only account collisions.
+function usernameKey(username) { return typeof username === 'string' ? username.toLowerCase() : null; }
+function validateUsername(username) {
+  if (typeof username !== 'string' || !username.trim() || username.length > 64 || /[\x00-\x1f\x7f]/.test(username)) {
+    throw new Error('Username must be a non-empty string of at most 64 characters');
+  }
+}
+
 // User operations
 const users = {
   async getAll() {
@@ -416,7 +424,13 @@ const users = {
 
   async getByUsername(username) {
     const db = await loadDb();
-    return db.users?.find(u => u.username === username);
+    const key = usernameKey(username);
+    if (key === null) return undefined;
+    const matches = (db.users || []).filter(user => usernameKey(user.username) === key);
+    if (matches.length === 1) return matches[0];
+    // Legacy case-only duplicates keep their exact-spelling login. Never guess between accounts.
+    const exact = matches.filter(user => user.username === username);
+    return exact.length === 1 ? exact[0] : undefined;
   },
 
   async getByOidcId(oidcId) {
@@ -437,7 +451,8 @@ const users = {
 
       // Check if username already exists
       if (initialSetup && db.users.length) throw new Error('Setup already completed');
-      if (db.users.some(u => u.username === userData.username)) {
+      validateUsername(userData.username);
+      if (db.users.some(u => usernameKey(u.username) === usernameKey(userData.username))) {
         throw new Error('Username already exists');
       }
 
@@ -469,9 +484,10 @@ const users = {
         throw new Error('User not found');
       }
 
-      // Check if username is being changed and if it already exists
+      // Existing case-only duplicates can still change passwords/roles without a rename.
+      if (Object.hasOwn(updates, 'username')) validateUsername(updates.username);
       if (updates.username && updates.username !== db.users[userIndex].username) {
-        if (db.users.some(u => u.username === updates.username)) {
+        if (db.users.some((u, index) => index !== userIndex && usernameKey(u.username) === usernameKey(updates.username))) {
           throw new Error('Username already exists');
         }
       }

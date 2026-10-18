@@ -106,3 +106,23 @@ test('source route does not reapply fields from a stale read', async t => {
     assert.equal(res.value.url, 'https://example.invalid/current');
     assert.equal(res.value.name, 'Renamed');
 });
+
+test('case-folded username creation and renames are atomic without merging legacy accounts', async t => {
+    const { db, dir } = await fixture(t);
+    const created = await Promise.allSettled(['Alice', 'ALICE', 'alice'].map(username => db.users.create({ username })));
+    assert.equal(created.filter(result => result.status === 'fulfilled').length, 1);
+    const alice = (await db.users.getAll())[0]; assert.equal((await db.users.getByUsername('aLiCe')).id, alice.id);
+    for (const username of [null, [], {}, '', '  ', 'a'.repeat(65), 'bad\nname']) await assert.rejects(db.users.create({ username }));
+    const bob = await db.users.create({ username: 'Bob' });
+    await assert.rejects(db.users.update(bob.id, { username: 'ALICE' }), /already exists/);
+    await db.users.update(alice.id, { username: 'ALICE' }); assert.equal((await db.users.getByUsername('alice')).id, alice.id);
+    const renames = await Promise.allSettled([db.users.update(alice.id, { username: 'Shared' }), db.users.update(bob.id, { username: 'SHARED' })]);
+    assert.equal(renames.filter(result => result.status === 'fulfilled').length, 1);
+    assert.equal((await db.users.getAll()).length, 2);
+    const legacy = { users: [{ id: 1, username: 'Old', role: 'admin' }, { id: 2, username: 'old', role: 'viewer' }], nextId: 3 };
+    await fs.writeFile(path.join(dir, 'db.json'), JSON.stringify(legacy));
+    assert.equal((await db.users.getByUsername('Old')).id, 1); assert.equal((await db.users.getByUsername('old')).id, 2);
+    assert.equal(await db.users.getByUsername('OLD'), undefined);
+    await db.users.update(2, { username: 'old', passwordHash: 'changed' });
+    const saved = await db.loadDb(); assert.equal(saved.users.length, 2); assert.equal(saved.users[1].authVersion, 1);
+});

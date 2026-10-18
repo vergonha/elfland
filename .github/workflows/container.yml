@@ -25,6 +25,9 @@ jobs:
           for attempt in $(seq 1 60); do
             if docker exec nodecast-smoke node scripts/healthcheck.cjs; then
               docker exec nodecast-smoke sh -c 'test ! -e /app/.env.container-sentinel && test ! -e /app/data/container-sentinel'
+              docker exec nodecast-smoke lspci --version
+              docker exec nodecast-smoke sh -c 'ldconfig -p | grep -q libmfxhw64.so.1 && ldconfig -p | grep -q libmfx-gen.so.1.2'
+              docker exec nodecast-smoke node -e "require('./server/services/hwDetect').detectQuickSync('ffmpeg').then(q => { if (q.available) process.exit(1); })"
               exit 0
             fi
             sleep 2

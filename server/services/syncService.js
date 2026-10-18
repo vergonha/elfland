@@ -278,14 +278,16 @@ class SyncService {
         const stmt = db.prepare(`
             INSERT INTO playlist_items (
                 id, source_id, item_id, type, name, category_id, 
-                stream_icon, stream_url, container_extension, 
+                stream_icon, stream_url, program, container_extension,
                 rating, year, added_at, data
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 category_id = excluded.category_id,
                 stream_icon = excluded.stream_icon,
+                stream_url = excluded.stream_url,
+                program = excluded.program,
                 container_extension = excluded.container_extension,
                 data = excluded.data
         `);
@@ -332,6 +334,7 @@ class SyncService {
                     String(catId),
                     icon,
                     null, // Direct URL not stored for Xtream usually, built on fly
+                    item.program || null,
                     container,
                     rating,
                     year,
@@ -641,6 +644,7 @@ class SyncService {
                 stream_icon: ch.tvgLogo,
                 stream_url: ch.url,
                 tvgId: ch.tvgId || null,
+                program: ch.program || null,
             }));
 
             // Save this batch immediately (skip purge - we'll do it at the end)
