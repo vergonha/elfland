@@ -1,12 +1,102 @@
-<p align="center">
-  <img src="public/img/logo-banner.png" alt="nodecast-tv" height="60" />
-</p>
 
-# What is nodecast-tv?
+<h1 align="center">
+  elfland ‎ . ݁⋆ ۶ৎ ݁˖ . ݁
+</h1>
+<p align="center">iptv player, a fork of nodecast-tv</p>
 
-nodecast-tv is a modern, web-based IPTV player featuring Live TV, EPG, Movies (VOD), and Series support. Built with performance and user experience in mind.
+<img src="https://i.imgur.com/a3uhA0G.png" alt="elfland" />
 
-## Features
+---
+
+## 𐔌՞. .՞𐦯    what is this
+
+elfland is a personal fork of [nodecast-tv](https://github.com/technomancer702/nodecast-tv), a web based iptv player with live tv, epg, movies and series. the streaming core is still theirs, i didn't touch the idea, i just bent it to fit how i actually use it.
+
+the fork is synced with upstream (last merge: `v2.2.1`), so everything nodecast does, elfland does. what's below is what i added on top.
+
+this is a fix for my own workflow, not a product. no promises, no support, but the code is gpl like the original so take whatever is useful.
+
+---
+
+### ᨒ⋆.ೃ࿔ what's new ──
+
+- [x] **terminal dark theme**, restyled after [kogane](https://github.com/vergonha/kogane): square switches, wcag contrast fixes
+- [x] **pixel icons** (pixelarticons / carbon on mobile) instead of the stock ones
+- [x] **everything lowercase**, because that's how i write
+- [x] **adult content filter**, toggled by an admin in settings
+- [x] **channel health monitor**, with auto-hide and diagnostics
+- [x] **manual diagnosis** for a channel, a movie or a series episode
+- [x] **proxy fallback** when a file won't play directly
+- [x] **leaner proxy**, binary responses stream instead of sitting in memory
+- [x] upstream issue templates and docker publish workflow removed, this fork doesn't publish images
+
+---
+
+### ⊹ ࣪ ˖ ໒꒱ theme and ui ──
+
+dark by default, flat, monospace-ish, borders instead of shadows. mobile fullscreen controls fixed along the way.
+
+<div align="center">
+  <img src="https://i.imgur.com/chXnKNy.png" width="45%" alt="live tv" />
+  <img src="https://i.imgur.com/IcmMhuy.png" width="45%" alt="tv guide" />
+  <img src="https://i.imgur.com/f9fP363.jpeg" width="45%" alt="movies" />
+  <img src="https://i.imgur.com/P7X1S7X.png" width="45%" alt="settings" />
+</div>
+
+---
+
+### ⋆ᨳଓ adult content filter ──
+
+an admin can turn it on or off in **settings**. filtering happens on the server at read time, so adult titles and categories never reach the browser, and nothing needs a re-sync when you flip it.
+
+- two keyword lists: strong ones (unambiguous) are checked against category and item names, softer ones like "adult" or "sex" only against category names, so "sex education" and "adult swim" survive
+- applied to channels, favorites, history and the stream proxy
+
+<img src="https://i.imgur.com/z7MtWIP.png" width="45%" alt="adult filter toggle" />
+
+---
+
+### ♱ channel health monitor ──
+
+iptv providers keep dead channels in the list. the monitor finds them so i don't have to click through them.
+
+- fetches every live channel's playlist the same way the player does and records if it returned a usable hls manifest, and how long it took
+- failures get checked again at the end of the run, and channels that still fail are **hidden** (same flag as manage content). the next run that finds them online shows them again
+- channels hidden by hand and adult channels are never checked
+- checks are throttled per source, providers cap simultaneous connections
+- if a run fails more than 15% of its channels nothing is hidden: a provider doesn't lose that many at once, so the problem is the network or the provider
+- every failure keeps a per-attempt trace, so a wrong verdict can be debugged later
+- the schedule and last run summary live in the database, restarting the server neither loses them nor starts a run
+- admin only, has its own **health** tab
+
+| env | default | what it does |
+|---|---|---|
+| `CHANNEL_CHECK_INTERVAL_MIN` | `120` | minutes between the end of one run and the start of the next |
+
+<img src="https://i.imgur.com/hQ43g39.png" width="45%" alt="health tab" />
+
+---
+
+### ✧ diagnosis ──
+
+when something is slow or won't play, run a diagnosis from the health tab on a **live channel**, a **movie** or a **series episode**. it runs on the server, so it sees exactly what the monitor and the player see.
+
+the probe produces a raw trace, then it's turned into findings you can read: "slower than realtime", "manifest frozen", "no seeking support" and so on. each one is ok, info, warn or bad.
+
+<img src="https://i.imgur.com/I9wp5Ym.png" width="45%" alt="diagnosis" />
+
+---
+
+
+## what upstream gives you
+
+everything from here down is a straight ctrl+c ctrl+v from the original [nodecast-tv](https://github.c
+om/technomancer702/nodecast-tv) readme. i didn't write any of it, and all the credit for the project,
+the code and the docs goes to [technomancer702](https://github.com/technomancer702) and the nodecast c
+ontributors. i only changed the clone and docker links to point to this fork. if you want the real thi
+ng, go use the original.
+
+### features
 
 - **📺 Live TV**: Fast channel zapping, category grouping, and search.
 - **📅 TV Guide (EPG)**: Interactive grid guide with 24h timeline, search, and dynamic resizing.
@@ -15,7 +105,7 @@ nodecast-tv is a modern, web-based IPTV player featuring Live TV, EPG, Movies (V
 - **🔐 Authentication**: User login system with admin and viewer roles ([details](https://github.com/technomancer702/nodecast-tv/pull/23)).
 - **🆔 OIDC SSO**: Support for Single Sign-On via OIDC providers (Authentik, Keycloak, etc.).
 - **⚡ High Performance**: Optimized for large playlists (7000+ channels) using virtual scrolling and batch rendering.
-- **⚙️ Management**: 
+- **⚙️ Management**:
   - Support for Xtream Codes and M3U playlists.
   - Manage hidden content categories.
   - Playback preferences (volume memory, auto-play).
@@ -23,17 +113,6 @@ nodecast-tv is a modern, web-based IPTV player featuring Live TV, EPG, Movies (V
 - **🔊 Smart Audio**: Configurable 5.1→Stereo downmix presets (ITU, Night Mode, Cinematic) with automatic passthrough for compatible sources.
 - **📦 Stream Processing**: Auto-detection of stream codecs with smart remux/transcode decisions.
 - **🐳 Docker Ready**: Easy deployment containerization.
-
-## Screenshots
-
-<div align="center">
-  <img src="public/img/screenshots/screenshot-dashboard.png" width="45%" alt="Dashboard" />
-  <img src="public/img/screenshots/screenshot-1.png" width="45%" alt="Live TV" />
-  <img src="public/img/screenshots/screenshot-2.png" width="45%" alt="TV Guide" />
-  <img src="public/img/screenshots/screenshot-3.png" width="45%" alt="Movies" />
-  <img src="public/img/screenshots/screenshot-4.png" width="45%" alt="Series" />
-  <img src="public/img/screenshots/screenshot-settings.png" width="45%" alt="Settings" />
-</div>
 
 ## Getting Started
 
@@ -46,8 +125,8 @@ nodecast-tv is a modern, web-based IPTV player featuring Live TV, EPG, Movies (V
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/technomancer702/nodecast-tv.git
-    cd nodecast-tv
+    git clone https://github.com/vergonha/elfland.git
+    cd elfland
     ```
 
 2.  Install dependencies:
@@ -66,14 +145,14 @@ nodecast-tv is a modern, web-based IPTV player featuring Live TV, EPG, Movies (V
 
 You can run nodecast-tv easily using Docker.
 
-Container images are published to `ghcr.io/technomancer702/nodecast-tv` when a GitHub release is published. Use a version tag such as `v2.2.1` for the release: stable releases publish image tags `2.2.1`, `2.2`, and `latest`; prereleases publish their full version tag without updating `latest` or the minor-version alias. Branch pushes, tag pushes alone, and draft releases do not publish images.
+No image is published for this fork, compose builds it from source.
 
 1.  Create a `docker-compose.yml` file (or copy the one from this repo):
 
     ```yaml
     services:
       nodecast-tv:
-        build: https://github.com/technomancer702/nodecast-tv.git#main
+        build: https://github.com/vergonha/elfland.git#main
         container_name: nodecast-tv
         ports:
           - "3000:3000" # Host:Container
