@@ -162,6 +162,27 @@ test('browser test: what the viewer sees, and the conclusion drawn against the s
     assert.match(result.findings.find(f => f.level === 'bad').detail, /the playlist could not be loaded \(http 404\)/);
     assert.equal(page.analyzeBrowserProbe({ unsupported: true, env: {}, stalls: 0 }, ok).conclusion.title, 'inconclusive');
 
+    // a speed warning from the server is not a failure to read the file
+    const thin = { verdict: 'warn', findings: [{ code: 'thin_margin' }], playback: { forceProxy: false } };
+    const failed = { host: 'cdn.example', env: { page: 'https:' }, stalls: 0, errorCode: 4 };
+    assert.equal(page.analyzeBrowserProbe(failed, thin).conclusion.title, 'works from the server, fails in this browser');
+
+    // an http file on a bare IP cannot load on an https page; the proxy probe proves the way out
+    const ipHttp = { verdict: 'warn', findings: [{ code: 'plain_http_ip' }], playback: { forceProxy: false } };
+    const viaProxy = { path: 'proxy', host: 'app', env: {}, stalls: 0, stallMs: 0, playing: true, startMs: 900, advancedSec: 7.9 };
+    result = page.analyzeBrowserProbe({ ...failed, reachable: false }, ipHttp, 8000, viaProxy);
+    assert.equal(result.conclusion.title, 'cannot play directly on https, but works through the proxy');
+    assert.match(result.conclusion.detail, /force proxy/);
+    assert.match(levels(result), /info:consistent with the certificate problem/);
+    assert.match(levels(result), /ok:it plays through this server's proxy/);
+    assert.ok(!/not reachable/.test(levels(result)), 'the reachability check is not blamed when the certificate explains it');
+    result = page.analyzeBrowserProbe(failed, ipHttp, 8000, { ...viaProxy, playing: false, errorCode: 4 });
+    assert.equal(result.conclusion.title, 'cannot play directly on https');
+    assert.match(result.conclusion.detail, /also failed through the proxy/);
+    assert.match(levels(result), /bad:it also fails through this server's proxy/);
+    assert.equal(page.analyzeBrowserProbe(failed, ok, 8000, viaProxy).conclusion.title, 'fails directly, works through the proxy');
+    assert.equal(page.analyzeBrowserProbe({ ...failed, env: { page: 'http:' } }, ipHttp).conclusion.title, 'works from the server, fails in this browser', 'on a plain http page the ip is not the problem');
+
     assert.ok(page.canBrowserTest({ kind: 'movie', sourceType: 'xtream' }));
     assert.ok(page.canBrowserTest({ kind: 'live', sourceType: 'xtream' }));
     assert.ok(!page.canBrowserTest({ kind: 'episode', sourceType: 'm3u' }));

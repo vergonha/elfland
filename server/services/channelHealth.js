@@ -56,7 +56,7 @@ const monitorHeaders = url => {
 async function followHops(url, { headers, signal, hops }) {
     let current = validateHttpUrl(url);
     for (let i = 0; ; i++) {
-        const hop = { host: new URL(current).host };
+        const hop = { host: new URL(current).host, proto: new URL(current).protocol.slice(0, -1) };
         hops.push(hop);
         const t0 = Date.now();
         let res;

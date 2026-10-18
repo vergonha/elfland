@@ -254,3 +254,20 @@ test('a Cloudflare block page is reported as a block on this server, not as a br
     const missing = diag.analyzeMovie({ probes: [{ ...probe, status: 404, error: 'http 404' }] });
     assert.ok(codes(missing).includes('not_found'));
 });
+
+test('a file served over plain http from a bare IP is flagged: an https page cannot load it', () => {
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(12)]);
+    const probe = hops => ({ status: 206, ttfbMs: 300, bytes: 0, headers: { 'content-type': 'video/mp4', 'content-range': 'bytes 0-1/9' }, buffer: mp4, total: 9e9, hops });
+    const flagged = hops => codes(diag.analyzeMovie({ probes: [probe(hops)] })).includes('plain_http_ip');
+
+    const cdnIp = [{ host: 'provider.example', ms: 50, status: 302, proto: 'http' }, { host: '186.233.119.199', ms: 100, status: 206, proto: 'http' }];
+    assert.ok(flagged(cdnIp));
+    const result = diag.analyzeMovie({ probes: [probe(cdnIp)] });
+    assert.match(result.findings.find(f => f.code === 'plain_http_ip').detail, /ERR_CERT_AUTHORITY_INVALID/);
+    assert.equal(diag.verdictOf(result.findings), 'warn');
+
+    assert.ok(!flagged([{ host: 'cdn.example.com', status: 206, proto: 'http' }]), 'a hostname may have a valid certificate');
+    assert.ok(!flagged([{ host: '186.233.119.199', status: 206, proto: 'https' }]), 'https is fine');
+    assert.ok(!flagged([{ host: '127.0.0.1:8080', status: 206, proto: 'http' }]), 'loopback never reaches a viewer');
+    assert.ok(flagged([{ host: '186.233.119.199:8080', status: 206, proto: 'http' }]), 'a port does not hide the ip');
+});

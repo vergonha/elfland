@@ -580,13 +580,24 @@ class WatchPage {
         } else {
             // Direct playback for mp4/mkv/avi
             this.updateTranscodeStatus('direct', 'Direct Play');
-            this.video.src = finalUrl;
-            this.video.play().catch(e => {
-                if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
-            });
+            this.playFile(url, needsProxy, playbackGeneration);
         }
 
         this.setVolumeFromStorage();
+    }
+
+    /**
+     * Plays a file. Straight from the provider unless a proxy is required; in that case the proxy is used.
+     * Some CDNs redirect to a bare IP over plain http, which an https page cannot load (the browser
+     * upgrades the request and rejects the IP's certificate). That failure is not visible to scripts,
+     * but the video's error event is: onError retries the file once through the proxy, only for it.
+     */
+    playFile(url, needsProxy, generation) {
+        this.directFallback = needsProxy ? null : { url, generation };
+        this.video.src = needsProxy ? `/api/proxy/stream?url=${encodeURIComponent(url)}` : url;
+        this.video.play().catch(e => {
+            if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
+        });
     }
 
     /**
@@ -954,6 +965,14 @@ class WatchPage {
         const error = this.video?.error;
         if (error && error.code) {
             console.error('[WatchPage] Video error:', error.code, error.message);
+        }
+        // Network (2) or "source not supported" (4) before anything loaded: try the proxy, once.
+        const fallback = this.directFallback;
+        if (fallback && fallback.generation === this.playbackGeneration && [2, 4].includes(error?.code) && this.video.readyState === 0) {
+            this.directFallback = null;
+            console.warn('[WatchPage] Direct playback failed, retrying through the proxy');
+            this.updateTranscodeStatus('direct', 'Direct Play (via proxy)');
+            this.playFile(fallback.url, true, fallback.generation);
         }
     }
 

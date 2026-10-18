@@ -98,6 +98,20 @@ function explainFailure(attempt, account, forceProxy) {
     return finding('bad', 'network', 'network error', `${error}${attempt.code ? ` (${attempt.code})` : ''} while talking to ${host}.`);
 }
 
+const isIp = host => /^(\d{1,3}\.){3}\d{1,3}$/.test(host.replace(/:\d+$/, '')) || host.startsWith('[');
+
+/**
+ * A file served over plain http from a bare IP address cannot be loaded by an https page: the browser
+ * upgrades the request to https and an IP has no valid certificate (ERR_CERT_AUTHORITY_INVALID).
+ */
+function mixedContentFinding(hops) {
+    const last = hops?.at(-1);
+    // Loopback is only reachable from the machine itself (development), never from a viewer's https page.
+    if (!last || last.proto !== 'http' || !isIp(last.host) || /^127\./.test(last.host)) return null;
+    return finding('warn', 'plain_http_ip', 'the file comes from an IP address over plain http',
+        `${last.host} serves it without https. a viewer on an https page has the request upgraded to https and the browser rejects the IP's certificate (ERR_CERT_AUTHORITY_INVALID), so it will not play directly. it plays through the server proxy. if the app itself is served over plain http this does not apply.`);
+}
+
 /** Account-level findings (status, expiry, connection limit). */
 function analyzeAccount(account) {
     if (!account) return [];
@@ -171,6 +185,9 @@ function analyzeLive({ tries, plain, freshness, segment, account, forceProxy }) 
             }
         }
     }
+
+    const mixed = ok.length && mixedContentFinding(ok[0].attempt.hops);
+    if (mixed) findings.push(mixed);
 
     if (plain) {
         if (ok.length && !plain.ok) {
@@ -353,6 +370,9 @@ function analyzeMovie({ probes, seek, extension, account, durationSecs, forcePro
         metrics.push({ label: 'time to first byte', value: seconds(ttfb) });
         if (ttfb >= 4000) findings.push(finding('bad', 'slow_start', 'very slow to start', `${seconds(ttfb)} before the first byte. players will look frozen before playback begins.`));
         else if (ttfb >= 1500) findings.push(finding('warn', 'slow_start', 'slow to start', `${seconds(ttfb)} before the first byte (healthy is under 1.5s).`));
+
+        const mixed = mixedContentFinding(probe.hops);
+        if (mixed) findings.push(mixed);
 
         const type = probe.headers['content-type'] || '';
         const looksLikeText = /text\/|html|json|mpegurl/i.test(type) || probe.buffer.toString('latin1', 0, 1) === '<';

@@ -612,7 +612,7 @@ class HealthPage {
 
     // ---- reading the browser result
 
-    analyzeBrowserProbe(s, server, playMs = 8000) {
+    analyzeBrowserProbe(s, server, playMs = 8000, proxy = null) {
         const findings = [], metrics = [];
         const add = (level, title, detail = '') => findings.push({ level, title, detail });
         const sec = ms => `${(ms / 1000).toFixed(1)}s`;
@@ -632,8 +632,10 @@ class HealthPage {
         } else if (s.errorCode || fatal) {
             const why = fatal ? `${hlsWords[fatal.details] || fatal.details}${fatal.httpCode ? ` (http ${fatal.httpCode})` : ''}` : (reasons[s.errorCode] || `error ${s.errorCode}`);
             add('bad', `this browser could not play it ${path}`, `${why}${s.errorMessage ? ` · ${s.errorMessage}` : ''}. host: ${s.host}.`);
+            const ipOverHttp = s.env?.page === 'https:' && server?.findings?.some(f => f.code === 'plain_http_ip');
+            if (ipOverHttp) add('info', 'consistent with the certificate problem on the provider\'s IP', 'the provider serves this file over plain http from an IP address, which an https page cannot load (look for ERR_CERT_AUTHORITY_INVALID in the browser console).');
             if (s.reachable === true) add('info', 'the address is reachable from this browser', 'the request itself went through, so the response was not a playable video: a block page, a refusal, or an unsupported codec.');
-            if (s.reachable === false) add('warn', 'the address is not reachable from this browser', `the request failed at the network level${s.env.mixedContent ? ' (an http file from an https page is blocked as mixed content)' : ''}.`);
+            if (s.reachable === false && !ipOverHttp) add('warn', 'the address is not reachable from this browser', `the request failed at the network level${s.env.mixedContent ? ' (an http file from an https page is blocked as mixed content)' : ''}.`);
         } else if (s.loadTimeout) {
             add('bad', `nothing loaded in this browser ${path}`, `${s.host} did not deliver the start of the stream within the time limit.${s.reachable === true ? ' The address itself is reachable.' : ''}`);
         } else {
@@ -694,30 +696,48 @@ class HealthPage {
                 else add('ok', 'seeking works', `jumped to the middle in ${sec(s.seekMs)} and kept playing.`);
             }
         }
-        return { findings, metrics, conclusion: this.concludeBrowser(s, server, playMs) };
+        if (proxy) {
+            const proxyFatal = proxy.errorCode || proxy.loadTimeout || !proxy.playing;
+            if (!proxyFatal) add('ok', 'it plays through this server\'s proxy', `${proxy.advancedSec}s played in ${playMs / 1000}s with ${proxy.stalls} stall${proxy.stalls === 1 ? '' : 's'}, started in ${sec(proxy.startMs)}.`);
+            else add('bad', 'it also fails through this server\'s proxy', proxy.errorCode ? (reasons[proxy.errorCode] || `error ${proxy.errorCode}`) : 'nothing played in time.');
+        }
+        return { findings, metrics, conclusion: this.concludeBrowser(s, server, playMs, proxy) };
     }
 
     // Puts the browser result next to the server's probe: who is affected, and what to do.
-    concludeBrowser(s, server, playMs = 8000) {
+    concludeBrowser(s, server, playMs = 8000, proxy = null) {
         const fatal = s.hlsErrors?.some(e => e.fatal);
         const broken = !!(s.errorCode || fatal || s.loadTimeout || (!s.playing && !s.playError && !s.unsupported));
         const healthyBuffer = s.live || s.fullyBuffered || s.bufferAheadSec >= 15;
         const rough = !broken && (s.stalls > 0 || s.advancedSec < playMs / 1000 * 0.6 || (!healthyBuffer && s.fillRate != null && s.fillRate < 1.2));
+        const barely = s.advancedSec < playMs / 1000 * 0.6 || s.stallMs >= 3000;
         const forceProxy = server?.playback?.forceProxy;
-        const serverBlocked = server?.findings?.some(f => f.code === 'cdn_blocked');
-        const serverOk = server?.verdict === 'ok';
+        const serverBlocked = !!server?.findings?.some(f => f.code === 'cdn_blocked');
+        // The server could read it unless its probe failed outright or was blocked; a speed warning is still "reads".
+        const serverReads = !!server && server.verdict !== 'bad' && !serverBlocked;
+        const ipOverHttp = s.env?.page === 'https:' && !!server?.findings?.some(f => f.code === 'plain_http_ip');
         const via = s.path === 'proxy';
+        const proxyWorks = !!proxy && !proxy.errorCode && !proxy.loadTimeout && proxy.playing;
 
         if (s.unsupported) return { level: 'warn', title: 'inconclusive', detail: 'this browser cannot play HLS, so there is nothing to compare.' };
+
         if (!broken && !rough) {
             if (serverBlocked && !via && forceProxy) return { level: 'bad', title: 'the viewer is fine, but "force proxy" sends playback through a server that is blocked', detail: 'this browser plays it directly. with force proxy on, viewers go through the server instead, and the CDN blocks it. turn force proxy off.' };
             if (serverBlocked) return { level: 'ok', title: 'viewers are fine: only the server is blocked', detail: via ? 'it plays through the proxy, so the server can reach the stream when it counts. the server probe above was blocked, but this is the real path.' : 'it plays straight from the provider. the server being blocked only affects what the server downloads itself: the automatic monitor, remux and transcoding.' };
-            if (server && !serverOk) return { level: 'ok', title: 'playback works, despite the server-side findings', detail: 'this browser plays it fine. review the server findings above: they may affect proxy, remux or transcoding, not this playback.' };
+            if (server?.verdict === 'bad') return { level: 'ok', title: 'playback works, despite the server-side findings', detail: 'this browser plays it fine. review the server findings above: they may affect proxy, remux or transcoding, not this playback.' };
             return { level: 'ok', title: 'healthy end to end', detail: `it works from the server and plays ${via ? 'through the proxy' : 'straight from the provider'} in this browser.` };
         }
-        const barely = s.advancedSec < playMs / 1000 * 0.6 || s.stallMs >= 3000;
-        if (rough) return { level: barely ? 'bad' : 'warn', title: barely ? 'it barely plays in this browser' : 'it plays, but not smoothly in this browser', detail: serverOk ? 'the server reaches it fine, so the limit is between this browser and the provider (this connection or this device).' : serverBlocked ? 'the server is blocked, so it cannot compare. the slowness is between this browser and the provider, or in the provider itself.' : 'the server also saw problems, so the provider is the likely cause.' };
-        if (serverOk) return { level: 'bad', title: 'works from the server, fails in this browser', detail: via ? 'even through the proxy this browser cannot play it: check the format and codecs.' : 'the server can fetch it, this browser cannot. turning on "force proxy" would send playback through the server instead.' };
+        if (rough) {
+            return { level: barely ? 'bad' : 'warn', title: barely ? 'it barely plays in this browser' : 'it plays, but not smoothly in this browser', detail: serverReads ? 'the server reaches it fine, so the limit is between this browser and the provider (this connection or this device).' : serverBlocked ? 'the server is blocked, so it cannot compare. the slowness is between this browser and the provider, or in the provider itself.' : 'the server also saw problems, so the provider is the likely cause.' };
+        }
+        // from here the browser could not play it
+        if (ipOverHttp) {
+            return proxyWorks
+                ? { level: 'bad', title: 'cannot play directly on https, but works through the proxy', detail: 'the provider serves this file over plain http from an IP address. the browser upgrades it to https and rejects the IP\'s certificate (ERR_CERT_AUTHORITY_INVALID). through this server\'s proxy it plays: turn force proxy on, or have the player fall back to the proxy when direct playback fails.' }
+                : { level: 'bad', title: 'cannot play directly on https', detail: `the provider serves this file over plain http from an IP address, which an https page cannot load (ERR_CERT_AUTHORITY_INVALID).${proxy ? ' it also failed through the proxy, so the file itself may be broken.' : ' try it through the server proxy.'}` };
+        }
+        if (proxyWorks) return { level: 'bad', title: 'fails directly, works through the proxy', detail: 'this browser cannot load it from the provider, but it plays through this server\'s proxy. turn force proxy on, or have the player fall back to the proxy when direct playback fails.' };
+        if (serverReads) return { level: 'bad', title: 'works from the server, fails in this browser', detail: via ? 'even through the proxy this browser cannot play it: check the format and codecs.' : 'the server can fetch it, this browser cannot. check the browser console for the cause (certificate, mixed content, codec).' };
         if (serverBlocked) return { level: 'bad', title: 'fails here and the server is blocked too', detail: 'neither this browser nor the server can get it. the provider or its CDN is refusing the stream.' };
         return { level: 'bad', title: 'broken for everyone', detail: 'it fails both from the server and in this browser: the problem is on the provider\'s side.' };
     }
@@ -741,8 +761,14 @@ class HealthPage {
             if (!live && sample.errorCode && url.startsWith('http:') && location.protocol === 'https:') {
                 sample = { ...(await this.probeVideo(url.replace(/^http:/, 'https:'))), upgradedToHttps: true };
             }
-            const analysis = this.analyzeBrowserProbe(sample, r, live ? 10000 : 8000);
-            r.browserTest = { sample, conclusion: analysis.conclusion, findings: analysis.findings };
+            // When the direct path fails, try the server's proxy too: it proves whether the proxy is the way out.
+            let proxySample = null;
+            if (!live && (sample.errorCode || sample.loadTimeout)) {
+                box.innerHTML = `${head}<p class="hint">it failed directly, trying through this server's proxy...</p>`;
+                proxySample = await this.probeVideo(`/api/proxy/stream?url=${encodeURIComponent(url)}`, { path: 'proxy', seek: false });
+            }
+            const analysis = this.analyzeBrowserProbe(sample, r, live ? 10000 : 8000, proxySample);
+            r.browserTest = { sample, ...(proxySample && { proxySample }), conclusion: analysis.conclusion, findings: analysis.findings };
             const c = analysis.conclusion;
             box.innerHTML = head + `<div class="verdict ${c.level}"><div class="head">${this.esc(c.title)}</div><div class="sub">${this.esc(c.detail)}</div></div>` +
                 this.renderFindings(analysis.findings) + this.renderMetrics(analysis.metrics);
