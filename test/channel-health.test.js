@@ -94,7 +94,14 @@ test('the schedule survives restarts: first boot waits one interval, a saved tim
     const interval = 120 * 60 * 1000;
 
     db.prepare('DELETE FROM health_meta').run();
+    delete process.env.CHANNEL_CHECK_ENABLED;
     let module = fresh();
+    module.start();
+    assert.equal(module.getState().nextRun, null, 'off by default: nothing is scheduled');
+    assert.equal(module.getState().scheduleEnabled, false);
+
+    process.env.CHANNEL_CHECK_ENABLED = 'true';
+    module = fresh();
     module.start();
     let next = module.getState().nextRun;
     assert.ok(Math.abs(next - (Date.now() + interval)) < 5000, 'no saved state: first run in 2h');
@@ -110,4 +117,5 @@ test('the schedule survives restarts: first boot waits one interval, a saved tim
     module.start();
     next = module.getState().nextRun;
     assert.ok(next > Date.now() + 30000 && next < Date.now() + 90000, 'overdue run starts about a minute after boot');
+    delete process.env.CHANNEL_CHECK_ENABLED;
 });

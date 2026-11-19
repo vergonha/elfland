@@ -71,6 +71,7 @@ iptv providers keep dead channels in the list. the monitor finds them so i don't
 
 | env | default | what it does |
 |---|---|---|
+| `CHANNEL_CHECK_ENABLED` | `false` | set to `true` to run the check on a schedule; off, it only runs when started from the health tab |
 | `CHANNEL_CHECK_INTERVAL_MIN` | `120` | minutes between the end of one run and the start of the next |
 
 <img src="https://i.imgur.com/hQ43g39.png" width="45%" alt="health tab" />

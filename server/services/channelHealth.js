@@ -26,6 +26,8 @@ const xtreamSession = require('./xtreamSession');
 const contentFilter = require('./contentFilter');
 
 const INTERVAL_MIN = parseInt(process.env.CHANNEL_CHECK_INTERVAL_MIN) || 120;
+// Off by default: every check hits the provider. A manual run from the health tab still works.
+const SCHEDULE_ENABLED = process.env.CHANNEL_CHECK_ENABLED === 'true';
 // Providers cap simultaneous connections per account, so checks are throttled per source.
 const TIMEOUT_MS = 20000;
 const PER_SOURCE_CONCURRENCY = 2;
@@ -286,8 +288,9 @@ function saveMeta() {
 
 function schedule(at) {
     clearTimeout(timer);
-    state.nextRun = at;
+    state.nextRun = SCHEDULE_ENABLED ? at : null;
     try { saveMeta(); } catch (err) { console.error('[ChannelHealth] Could not save state:', err.message); }
+    if (!SCHEDULE_ENABLED) return;
     timer = setTimeout(() => runOnce(), Math.max(at - Date.now(), 0));
     timer.unref();
 }
@@ -303,5 +306,5 @@ function start() {
 module.exports = {
     start, runOnce, list, checkUrl, checkUrlOnce, followHops, readBody, monitorHeaders, pickHeaders,
     redact, streamUrl, TIMEOUT_MS,
-    getState: () => { ensureMeta(); return { ...state, intervalMin: INTERVAL_MIN }; }
+    getState: () => { ensureMeta(); return { ...state, intervalMin: INTERVAL_MIN, scheduleEnabled: SCHEDULE_ENABLED }; }
 };

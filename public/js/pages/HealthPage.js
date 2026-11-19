@@ -124,7 +124,7 @@ class HealthPage {
             : s ? `last run ${this.ago(d.lastRun)}: checked ${s.total} channels in ${this.span(s.durationMs)}` : 'no run has finished yet';
         document.getElementById('health-schedule').textContent = d.running ? 'running now'
             : d.nextRun ? (d.nextRun <= Date.now() ? 'next run: any moment now' : `next run in ${this.span(d.nextRun - Date.now())}`) + ` · every ${d.intervalMin} min`
-                : '';
+                : d.scheduleEnabled === false ? 'automatic runs are off (CHANNEL_CHECK_ENABLED)' : '';
         const progress = document.getElementById('health-progress');
         progress.classList.toggle('hidden', !d.running);
         document.getElementById('health-progress-bar').style.width = d.total ? `${Math.round(d.checked / d.total * 100)}%` : '0';
