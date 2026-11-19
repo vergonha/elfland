@@ -34,11 +34,18 @@ class XtreamApi {
      */
     async request(action, params = {}) {
         const url = this.buildApiUrl(action, params);
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Xtream API error: ${response.status} ${response.statusText}`);
+        // some panels reject node's default UA (e.g. with 451), so send a browser one like channelHealth does
+        const response = await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
+        });
+        const text = await response.text();
+        try {
+            // some panels answer 451/4xx with a perfectly valid JSON body, so trust the body over the status
+            return JSON.parse(text);
+        } catch {
+            if (!response.ok) throw new Error(`Xtream API error: ${response.status} ${response.statusText}`);
+            throw new Error('Xtream API error: invalid JSON response');
         }
-        return response.json();
     }
 
     /**
