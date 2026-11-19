@@ -120,3 +120,20 @@ test('one transient upstream error is retried; malformed query values return 400
     }
     assert.equal(calls, 2);
 });
+
+test('live HLS reloads reuse the redirected URL and fall back to the panel when it stops working', async t => {
+    const hits = { panel: 0, edge: 0 };
+    let edgeAlive = true;
+    const { proxy } = await fixture(t, (req, res) => {
+        if (req.url === '/live/42.m3u8') { hits.panel++; res.writeHead(302, { Location: `/edge/42.m3u8?token=${hits.panel}` }); return res.end(); }
+        hits.edge++;
+        if (!edgeAlive && req.url.endsWith('token=1')) { res.writeHead(403); return res.end(); }
+        res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
+        res.end('#EXTM3U\nseg.ts\n');
+    });
+    for (let i = 0; i < 3; i++) assert.equal((await fetch(proxy('/live/42.m3u8'))).status, 200);
+    assert.deepEqual(hits, { panel: 1, edge: 3 });
+    edgeAlive = false;
+    assert.equal((await fetch(proxy('/live/42.m3u8'))).status, 200);
+    assert.deepEqual(hits, { panel: 2, edge: 5 });
+});

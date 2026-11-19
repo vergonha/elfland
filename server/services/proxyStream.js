@@ -3,6 +3,10 @@ const { pipeline } = require('node:stream/promises');
 const { validateHttpUrl } = require('./urlSecurity');
 
 const MAX_HLS_MANIFEST_BYTES = 5 * 1024 * 1024;
+// Xtream panels open a new session on every hit of the panel URL, so live playlist reloads blow past
+// the account's connection cap. Reloads go straight to the tokenized URL the panel redirected to.
+const REDIRECT_TTL_MS = 10 * 60 * 1000;
+const redirects = new Map(); // original manifest url -> { url, expires }
 
 async function* prepend(first, iterator) {
     try {
@@ -77,7 +81,16 @@ async function proxyStream(req, res) {
             };
             const range = req.get('range');
             if (range) headers.Range = range;
-            const upstream = await fetch(url, { headers, signal: controller.signal });
+            const cached = redirects.get(url);
+            const target = cached && cached.expires > Date.now() ? cached.url : url;
+            const upstream = await fetch(target, { headers, signal: controller.signal });
+            if (target !== url && !upstream.ok) {
+                // Token expired or was revoked: forget it and ask the panel again without spending an attempt.
+                redirects.delete(url);
+                await upstream.body?.cancel();
+                attempt--;
+                continue;
+            }
             if (upstream.status >= 500 && attempt < 2) {
                 await upstream.body?.cancel();
                 await new Promise(resolve => setTimeout(resolve, 500));
@@ -114,6 +127,10 @@ async function proxyStream(req, res) {
                 || /(?:mpegurl|m3u8)/i.test(type);
             if (isManifest) {
                 const manifest = await collectManifest(first, iterator);
+                if (upstream.redirected && target === url) {
+                    if (redirects.size > 1000) redirects.clear();
+                    redirects.set(url, { url: upstream.url, expires: Date.now() + REDIRECT_TTL_MS });
+                }
                 res.removeHeader('Content-Length');
                 res.removeHeader('Content-Range');
                 res.set('Content-Type', 'application/vnd.apple.mpegurl');
