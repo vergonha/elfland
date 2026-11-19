@@ -1,12 +1,9 @@
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { validateHttpUrl } = require('./urlSecurity');
+const xtreamSession = require('./xtreamSession');
 
 const MAX_HLS_MANIFEST_BYTES = 5 * 1024 * 1024;
-// Xtream panels open a new session on every hit of the panel URL, so live playlist reloads blow past
-// the account's connection cap. Reloads go straight to the tokenized URL the panel redirected to.
-const REDIRECT_TTL_MS = 10 * 60 * 1000;
-const redirects = new Map(); // original manifest url -> { url, expires }
 
 async function* prepend(first, iterator) {
     try {
@@ -64,7 +61,7 @@ async function proxyStream(req, res) {
         return res.status(400).json({ error: 'A valid HTTP(S) URL is required' });
     }
 
-    let lastError;
+    let lastError, renewed = false;
     for (let attempt = 1; attempt <= 2; attempt++) {
         if (res.destroyed) return;
         const controller = new AbortController();
@@ -81,12 +78,12 @@ async function proxyStream(req, res) {
             };
             const range = req.get('range');
             if (range) headers.Range = range;
-            const cached = redirects.get(url);
-            const target = cached && cached.expires > Date.now() ? cached.url : url;
-            const upstream = await fetch(target, { headers, signal: controller.signal });
-            if (target !== url && !upstream.ok) {
-                // Token expired or was revoked: forget it and ask the panel again without spending an attempt.
-                redirects.delete(url);
+            const session = await xtreamSession.resolve(url, headers);
+            const upstream = await fetch(session.target, { headers, signal: controller.signal });
+            if (session.reused && !upstream.ok && upstream.status < 500 && !renewed) {
+                // Token expired or was revoked: renew the shared session once, without spending an attempt.
+                renewed = true;
+                session.renew();
                 await upstream.body?.cancel();
                 attempt--;
                 continue;
@@ -127,10 +124,6 @@ async function proxyStream(req, res) {
                 || /(?:mpegurl|m3u8)/i.test(type);
             if (isManifest) {
                 const manifest = await collectManifest(first, iterator);
-                if (upstream.redirected && target === url) {
-                    if (redirects.size > 1000) redirects.clear();
-                    redirects.set(url, { url: upstream.url, expires: Date.now() + REDIRECT_TTL_MS });
-                }
                 res.removeHeader('Content-Length');
                 res.removeHeader('Content-Range');
                 res.set('Content-Type', 'application/vnd.apple.mpegurl');

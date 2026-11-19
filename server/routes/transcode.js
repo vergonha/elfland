@@ -1,5 +1,6 @@
 const { parseProgram } = require('../services/mpegTsProgram');
 const { redactUrl, redactText, validateHttpUrl, FFMPEG_PROTOCOL_WHITELIST } = require('../services/urlSecurity');
+const xtreamSession = require('../services/xtreamSession');
 const express = require('express');
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -57,7 +58,7 @@ router.post('/session', startupLimit, async (req, res) => {
     const userAgent = db.getUserAgent(settings);
 
     try {
-        session = await transcodeSession.createSession(url, {
+        session = await transcodeSession.createSession(await xtreamSession.edgeUrl(url), {
             playbackLeaseId, requestSequence, isLive: isLive === true,
             ownerId: req.user.id,
             ffmpegPath,
@@ -240,7 +241,7 @@ router.get('/', startupLimit, async (req, res) => {
         '-reconnect_delay_max', '10',
         // Prevent Range/HEAD requests that some providers reject with 405
         '-seekable', '0',
-        '-i', url,
+        '-i', await xtreamSession.edgeUrl(url),
         // Map only first video and audio stream (avoid subtitle streams causing issues)
         '-map', '0:v:0',
         '-map', '0:a:0?', // ? makes audio optional if not present

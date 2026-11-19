@@ -22,6 +22,7 @@
 const { getDb } = require('../db/sqlite');
 const { sources } = require('../db');
 const { validateHttpUrl } = require('./urlSecurity');
+const xtreamSession = require('./xtreamSession');
 const contentFilter = require('./contentFilter');
 
 const INTERVAL_MIN = parseInt(process.env.CHANNEL_CHECK_INTERVAL_MIN) || 120;
@@ -53,7 +54,17 @@ const monitorHeaders = url => {
 
 // Follows redirects by hand so every hop is timed and validated. `hops` is filled in as it goes,
 // so the caller still has the trace when a later hop throws.
-async function followHops(url, { headers, signal, hops }) {
+async function followHops(url, options) {
+    // Checks share the player's Xtream session, so monitoring never opens connections of its own.
+    const session = await xtreamSession.resolve(url, options.headers);
+    const result = await walkHops(session.target, options);
+    if (!session.reused || result.res.ok || result.res.status >= 500) return result;
+    await result.res.body?.cancel();
+    session.renew();
+    return walkHops((await xtreamSession.resolve(url, options.headers)).target, options);
+}
+
+async function walkHops(url, { headers, signal, hops }) {
     let current = validateHttpUrl(url);
     for (let i = 0; ; i++) {
         const hop = { host: new URL(current).host, proto: new URL(current).protocol.slice(0, -1) };

@@ -2,6 +2,7 @@ const { ProbeLeases, parseProbeLease, requestCancellation, cancelled } = require
 const probeLeases = new ProbeLeases();
 const { parseProgram, selectProgramStreams } = require('../services/mpegTsProgram');
 const { redactUrl, redactText, validateHttpUrl, FFMPEG_PROTOCOL_WHITELIST } = require('../services/urlSecurity');
+const xtreamSession = require('../services/xtreamSession');
 const express = require('express');
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -167,7 +168,7 @@ router.get('/', async (req, res) => {
             if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.result;
             console.log(`[Probe] Probing: ${redactUrl(url)}...`);
             try {
-                const data = await probeStream(url, ffprobePath, ua, req.app.locals.probeTimeoutMs || 15000, signal);
+                const data = await probeStream(await xtreamSession.edgeUrl(url), ffprobePath, ua, req.app.locals.probeTimeoutMs || 15000, signal);
                 if (signal.aborted) throw cancelled();
                 const analysis = analyzeProbeResult(data, url, program);
                 probeCache.set(cacheKey, { result: analysis, timestamp: Date.now() });

@@ -1,5 +1,6 @@
 const { parseProgram } = require('../services/mpegTsProgram');
 const { redactUrl, redactText, validateHttpUrl } = require('../services/urlSecurity');
+const xtreamSession = require('../services/xtreamSession');
 const express = require('express');
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -119,7 +120,7 @@ router.get('/', async (req, res) => {
         '-reconnect_delay_max', '10',
         // Prevent Range/HEAD requests that some providers reject with 405
         '-seekable', '0',
-        '-i', safeUrl,
+        '-i', await xtreamSession.edgeUrl(safeUrl),
         // STRICT MAPPING: Only map video and audio, ignore subtitles/data/attachments
         // This prevents remux failure when source container has incompatible subtitle tracks (e.g. MKV -> MP4)
         '-map', program === null ? '0:v' : `0:p:${program}:v:0`,

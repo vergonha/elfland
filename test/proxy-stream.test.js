@@ -121,19 +121,50 @@ test('one transient upstream error is retried; malformed query values return 400
     assert.equal(calls, 2);
 });
 
-test('live HLS reloads reuse the redirected URL and fall back to the panel when it stops working', async t => {
-    const hits = { panel: 0, edge: 0 };
-    let edgeAlive = true;
+test('one Xtream session per account: concurrent plays of any channel hit the panel once', async t => {
+    let panel = 0, token = 'A';
+    const edgeHits = [];
     const { proxy } = await fixture(t, (req, res) => {
-        if (req.url === '/live/42.m3u8') { hits.panel++; res.writeHead(302, { Location: `/edge/42.m3u8?token=${hits.panel}` }); return res.end(); }
-        hits.edge++;
-        if (!edgeAlive && req.url.endsWith('token=1')) { res.writeHead(403); return res.end(); }
+        const { pathname, searchParams } = new URL(req.url, 'http://x');
+        if (pathname.startsWith('/live/') && !searchParams.has('token')) {
+            panel++;
+            res.writeHead(302, { Location: `${pathname}?token=${token}` });
+            return res.end();
+        }
+        edgeHits.push(`${pathname}?${searchParams}`);
+        if (searchParams.get('token') !== token) { res.writeHead(403); return res.end(); }
         res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
         res.end('#EXTM3U\nseg.ts\n');
     });
-    for (let i = 0; i < 3; i++) assert.equal((await fetch(proxy('/live/42.m3u8'))).status, 200);
-    assert.deepEqual(hits, { panel: 1, edge: 3 });
-    edgeAlive = false;
-    assert.equal((await fetch(proxy('/live/42.m3u8'))).status, 200);
-    assert.deepEqual(hits, { panel: 2, edge: 5 });
+    const plays = ['/live/u/p/1.m3u8', '/live/u/p/2.m3u8', '/live/u/p/1.m3u8', '/live/u/p/3.ts'];
+    const statuses = await Promise.all(plays.map(route => fetch(proxy(route)).then(r => r.status)));
+    assert.deepEqual(statuses, [200, 200, 200, 200]);
+    assert.equal(panel, 1);
+    assert.ok(edgeHits.every(hit => hit.endsWith('token=A')));
+
+    token = 'B'; // panel revoked A: concurrent failures renew the session once
+    const renewed = await Promise.all(plays.map(route => fetch(proxy(route)).then(r => r.status)));
+    assert.deepEqual(renewed, [200, 200, 200, 200]);
+    assert.equal(panel, 2);
+    assert.equal((await fetch(proxy('/live/other/p/1.m3u8'))).status, 200);
+    assert.equal(panel, 3); // a different account gets its own session
+});
+
+test('health checks reuse the player session and renew it when the token is refused', async t => {
+    const { followHops } = require('../server/services/channelHealth');
+    let panel = 0, token = 'A';
+    const { proxy, upstream } = await fixture(t, (req, res) => {
+        const { pathname, searchParams } = new URL(req.url, 'http://x');
+        if (!searchParams.has('token')) { panel++; res.writeHead(302, { Location: `${pathname}?token=${token}` }); return res.end(); }
+        if (searchParams.get('token') !== token) { res.writeHead(403); return res.end(); }
+        res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
+        res.end('#EXTM3U\nseg.ts\n');
+    });
+    assert.equal((await fetch(proxy('/live/health/p/1.m3u8'))).status, 200);
+    const check = async () => (await followHops(`${upstream}/live/health/p/2.m3u8`, { headers: {}, hops: [] })).res;
+    assert.equal((await check()).status, 200);
+    assert.equal(panel, 1);
+    token = 'B';
+    assert.equal((await check()).status, 200);
+    assert.equal(panel, 2);
 });

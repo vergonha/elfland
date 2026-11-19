@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { spawn } = require('child_process');
+const xtreamSession = require('../services/xtreamSession');
 
 /**
  * Subtitle extraction endpoint
@@ -8,7 +9,7 @@ const { spawn } = require('child_process');
  * 
  * Extracts a specific subtitle track and converts it to WebVTT on the fly.
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     const { url, index } = req.query;
 
     if (!url || index === undefined) {
@@ -47,7 +48,7 @@ router.get('/', (req, res) => {
         '-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         '-probesize', '5000000',
         '-analyzeduration', '5000000',
-        '-i', parsedUrl.href,
+        '-i', await xtreamSession.edgeUrl(parsedUrl.href),
         '-map', `0:${indexNum}`,
         '-c:s', 'webvtt',
         '-f', 'webvtt',
