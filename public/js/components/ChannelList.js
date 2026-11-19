@@ -309,7 +309,8 @@ class ChannelList {
         if (searchTerm) {
             this.filteredChannels = this.channels.filter(ch =>
                 String(ch.name ?? "").toLowerCase().includes(searchTerm) ||
-                String(ch.groupTitle ?? "").toLowerCase().includes(searchTerm)
+                String(ch.groupTitle ?? "").toLowerCase().includes(searchTerm) ||
+                String(this.getProgramInfo(ch) ?? "").toLowerCase().includes(searchTerm)
             );
         }
 
